@@ -524,6 +524,8 @@ def extract_all(pdf_path, output_dir="output"):
                     "shot_type": meta["shot_type"],
                     "turn": meta["turn"],
                     "accuracy": meta["accuracy"],
+                    "team1_stones_in_play": len(team1_stones),
+                    "team2_stones_in_play": len(team2_stones),
                 }
 
                 # Stone positions – up to 8 per team, sorted by distance
@@ -610,6 +612,7 @@ def _write_shots_csv(path, rows):
         "match_id", "end_number", "shot_number",
         "team_code", "player_id", "player_name",
         "shot_type", "turn", "accuracy",
+        "team1_stones_in_play", "team2_stones_in_play",
     ]
     stone_fields = []
     for ti in (1, 2):
