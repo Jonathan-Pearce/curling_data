@@ -82,6 +82,8 @@ The script produces five CSV files in the output directory:
 | shot_type | Shot type (e.g., Draw, Take-out, Guard, Hit and Roll) |
 | turn | Turn direction (Clockwise, Counter-clockwise, Not considered) |
 | accuracy | Shot accuracy percentage |
+| team1_stones_in_play | Number of team 1 stones in play after this shot |
+| team2_stones_in_play | Number of team 2 stones in play after this shot |
 | team1_stone1_x … team1_stone8_x | Normalised x-coordinate for each team 1 stone |
 | team1_stone1_y … team1_stone8_y | Normalised y-coordinate for each team 1 stone |
 | team1_stone1_dist … team1_stone8_dist | Distance from house centre (1.0 = 12-foot ring) |
