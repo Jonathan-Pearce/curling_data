@@ -1,0 +1,50 @@
+match_id,date,round,start_time,team1_code,team2_code,team1_final_score,team2_final_score
+1,SAT 29 NOV 2025,Gold Medal Game,15:00,SUI,SWE,4,5
+2,FRI 28 NOV 2025,Bronze Medal Game,19:00,ITA,SCO,3,9
+3,FRI 28 NOV 2025,Semi-final - Sheet A,9:00,SUI,ITA,8,7
+4,FRI 28 NOV 2025,Semi-final - Sheet D,9:00,SWE,SCO,8,5
+5,THU 27 NOV 2025,Round Robin Session 9 - Sheet A,14:00,CZE,DEN,6,7
+6,THU 27 NOV 2025,Round Robin Session 9 - Sheet B,14:00,AUT,SWE,5,7
+7,THU 27 NOV 2025,Round Robin Session 9 - Sheet C,14:00,GER,POL,6,5
+8,THU 27 NOV 2025,Round Robin Session 9 - Sheet D,14:00,SCO,ITA,8,5
+9,THU 27 NOV 2025,Round Robin Session 9 - Sheet E,14:00,SUI,NOR,8,4
+10,WED 26 NOV 2025,Round Robin Session 8 - Sheet A,19:00,ITA,SUI,8,9
+11,WED 26 NOV 2025,Round Robin Session 8 - Sheet B,19:00,CZE,POL,9,2
+12,WED 26 NOV 2025,Round Robin Session 8 - Sheet C,19:00,AUT,DEN,4,6
+13,WED 26 NOV 2025,Round Robin Session 8 - Sheet D,19:00,NOR,GER,3,7
+14,WED 26 NOV 2025,Round Robin Session 8 - Sheet E,19:00,SWE,SCO,4,11
+15,WED 26 NOV 2025,Round Robin Session 7 - Sheet A,9:00,GER,AUT,8,2
+16,WED 26 NOV 2025,Round Robin Session 7 - Sheet B,9:00,DEN,SUI,3,9
+17,WED 26 NOV 2025,Round Robin Session 7 - Sheet C,9:00,SWE,ITA,4,6
+18,WED 26 NOV 2025,Round Robin Session 7 - Sheet D,9:00,POL,SCO,2,7
+19,WED 26 NOV 2025,Round Robin Session 7 - Sheet E,9:00,NOR,CZE,4,6
+20,TUE 25 NOV 2025,Round Robin Session 6 - Sheet A,14:00,POL,SWE,4,8
+21,TUE 25 NOV 2025,Round Robin Session 6 - Sheet B,14:00,SCO,NOR,7,4
+22,TUE 25 NOV 2025,Round Robin Session 6 - Sheet C,14:00,CZE,GER,6,9
+23,TUE 25 NOV 2025,Round Robin Session 6 - Sheet D,14:00,AUT,SUI,2,10
+24,TUE 25 NOV 2025,Round Robin Session 6 - Sheet E,14:00,DEN,ITA,5,7
+25,MON 24 NOV 2025,Round Robin Session 5 - Sheet A,20:00,SUI,SCO,4,8
+26,MON 24 NOV 2025,Round Robin Session 5 - Sheet B,20:00,POL,ITA,6,9
+27,MON 24 NOV 2025,Round Robin Session 5 - Sheet C,20:00,NOR,AUT,9,7
+28,MON 24 NOV 2025,Round Robin Session 5 - Sheet D,20:00,GER,DEN,10,2
+29,MON 24 NOV 2025,Round Robin Session 5 - Sheet E,20:00,CZE,SWE,2,7
+30,MON 24 NOV 2025,Round Robin Session 4 - Sheet A,12:00,AUT,POL,3,12
+31,MON 24 NOV 2025,Round Robin Session 4 - Sheet B,12:00,SUI,CZE,10,9
+32,MON 24 NOV 2025,Round Robin Session 4 - Sheet C,12:00,DEN,SCO,4,9
+33,MON 24 NOV 2025,Round Robin Session 4 - Sheet D,12:00,SWE,NOR,9,5
+34,MON 24 NOV 2025,Round Robin Session 4 - Sheet E,12:00,ITA,GER,9,7
+35,SUN 23 NOV 2025,Round Robin Session 3 - Sheet A,19:00,SWE,GER,5,3
+36,SUN 23 NOV 2025,Round Robin Session 3 - Sheet B,19:00,NOR,DEN,8,3
+37,SUN 23 NOV 2025,Round Robin Session 3 - Sheet C,19:00,ITA,CZE,8,9
+38,SUN 23 NOV 2025,Round Robin Session 3 - Sheet D,19:00,SUI,POL,9,3
+39,SUN 23 NOV 2025,Round Robin Session 3 - Sheet E,19:00,SCO,AUT,7,4
+40,SUN 23 NOV 2025,Round Robin Session 2 - Sheet A,9:00,SCO,CZE,10,5
+41,SUN 23 NOV 2025,Round Robin Session 2 - Sheet B,9:00,ITA,AUT,10,1
+42,SUN 23 NOV 2025,Round Robin Session 2 - Sheet C,9:00,POL,NOR,9,8
+43,SUN 23 NOV 2025,Round Robin Session 2 - Sheet D,9:00,DEN,SWE,4,10
+44,SUN 23 NOV 2025,Round Robin Session 2 - Sheet E,9:00,GER,SUI,8,6
+45,SAT 22 NOV 2025,Round Robin Session 1 - Sheet A,14:30,NOR,ITA,4,9
+46,SAT 22 NOV 2025,Round Robin Session 1 - Sheet B,14:30,GER,SCO,7,8
+47,SAT 22 NOV 2025,Round Robin Session 1 - Sheet C,14:30,SUI,SWE,8,4
+48,SAT 22 NOV 2025,Round Robin Session 1 - Sheet D,14:30,CZE,AUT,8,7
+49,SAT 22 NOV 2025,Round Robin Session 1 - Sheet E,14:30,POL,DEN,7,5
