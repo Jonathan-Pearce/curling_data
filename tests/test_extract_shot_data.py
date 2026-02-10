@@ -16,10 +16,14 @@ from extract_shot_data import (
     _detect_stones_in_crop,
     group_pages_into_matches,
     extract_all,
+    extract_event,
 )
 
-PDF_PATH = os.path.join(os.path.dirname(__file__), "..", "ECC2025_ResultsBook_Men_A-Division.pdf")
+PDF_PATH = os.path.join(os.path.dirname(__file__), "..", "data", "pdfs", "ECC2025_ResultsBook_Men_A-Division.pdf")
 PDF_EXISTS = os.path.isfile(PDF_PATH)
+
+WMCC_PDF_PATH = os.path.join(os.path.dirname(__file__), "..", "data", "pdfs", "WMCC2023_ResultsBook.pdf")
+WMCC_PDF_EXISTS = os.path.isfile(WMCC_PDF_PATH)
 
 
 # ---------------------------------------------------------------------------
@@ -184,24 +188,65 @@ class TestWithPDF:
         output_dir = str(tmp_path / "output")
         extract_all(PDF_PATH, output_dir)
 
-        for fname in ["matches.csv", "teams.csv", "players.csv", "ends.csv", "shot_locations.csv"]:
+        for fname in ["events.csv", "matches.csv", "teams.csv", "players.csv", "ends.csv", "shot_locations.csv"]:
             fpath = os.path.join(output_dir, fname)
             assert os.path.isfile(fpath), f"{fname} not created"
+
+        with open(os.path.join(output_dir, "events.csv")) as f:
+            events = list(csv.DictReader(f))
+        assert len(events) == 1
+        assert events[0]["event_id"] == "1"
+        assert events[0]["pdf_file"] == "ECC2025_ResultsBook_Men_A-Division.pdf"
 
         with open(os.path.join(output_dir, "matches.csv")) as f:
             matches = list(csv.DictReader(f))
         assert len(matches) == 49
+        assert matches[0]["event_id"] == "1"
         assert matches[0]["team1_code"] == "SUI"
         assert matches[0]["team2_code"] == "SWE"
 
         with open(os.path.join(output_dir, "ends.csv")) as f:
             ends = list(csv.DictReader(f))
         assert len(ends) == 437
+        assert ends[0]["event_id"] == "1"
 
         with open(os.path.join(output_dir, "shot_locations.csv")) as f:
             shots = list(csv.DictReader(f))
         assert len(shots) == 6992
+        assert shots[0]["event_id"] == "1"
 
         with open(os.path.join(output_dir, "teams.csv")) as f:
             teams = list(csv.DictReader(f))
         assert len(teams) == 10
+        assert teams[0]["event_id"] == "1"
+
+        with open(os.path.join(output_dir, "players.csv")) as f:
+            players = list(csv.DictReader(f))
+        assert players[0]["event_id"] == "1"
+
+
+@pytest.mark.skipif(not (PDF_EXISTS and WMCC_PDF_EXISTS), reason="Both PDFs required")
+class TestMultiEvent:
+    def test_multi_event_extraction(self, tmp_path):
+        output_dir = str(tmp_path / "output")
+        extract_all([PDF_PATH, WMCC_PDF_PATH], output_dir)
+
+        with open(os.path.join(output_dir, "events.csv")) as f:
+            events = list(csv.DictReader(f))
+        assert len(events) == 2
+        assert events[0]["event_id"] == "1"
+        assert events[1]["event_id"] == "2"
+
+        with open(os.path.join(output_dir, "matches.csv")) as f:
+            matches = list(csv.DictReader(f))
+        event1_matches = [m for m in matches if m["event_id"] == "1"]
+        event2_matches = [m for m in matches if m["event_id"] == "2"]
+        assert len(event1_matches) == 49
+        assert len(event2_matches) > 0
+
+        with open(os.path.join(output_dir, "teams.csv")) as f:
+            teams = list(csv.DictReader(f))
+        event1_teams = [t for t in teams if t["event_id"] == "1"]
+        event2_teams = [t for t in teams if t["event_id"] == "2"]
+        assert len(event1_teams) == 10
+        assert len(event2_teams) > 0
