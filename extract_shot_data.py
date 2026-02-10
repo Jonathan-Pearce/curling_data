@@ -21,12 +21,10 @@ import csv
 import math
 import os
 import re
-from collections import defaultdict
 
 import cv2
 import numpy as np
 import pdfplumber
-from PIL import Image
 
 # ---------------------------------------------------------------------------
 # Constants
