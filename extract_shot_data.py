@@ -1,14 +1,14 @@
 """
 Curling Shot Data Extractor
 
-Parses a curling tournament PDF (e.g. ECC2025_ResultsBook_Men_A-Division.pdf)
-to extract match, end, and shot-level data including stone positions detected
-via OpenCV color-based segmentation.
+Parses curling tournament PDFs to extract match, end, and shot-level data
+including stone positions detected via OpenCV color-based segmentation.
 
 Usage:
-    python extract_shot_data.py <pdf_path> [--output-dir <dir>]
+    python extract_shot_data.py <pdf_path> [<pdf_path2> ...] [--output-dir <dir>]
 
 Outputs CSV files:
+    - events.csv
     - matches.csv
     - teams.csv
     - players.csv
@@ -375,10 +375,12 @@ def group_pages_into_matches(pdf, shot_page_indices):
 # ---------------------------------------------------------------------------
 
 
-def extract_all(pdf_path, output_dir="output"):
-    """Run the full extraction pipeline and write CSV tables."""
-    os.makedirs(output_dir, exist_ok=True)
+def extract_event(pdf_path, event_id):
+    """Extract data from a single PDF and return raw data structures.
 
+    Returns (matches_rows, teams_dict, players_dict, ends_rows, shots_rows)
+    with *event_id* embedded in every row.
+    """
     pdf = pdfplumber.open(pdf_path)
     shot_page_indices = find_shot_pages(pdf)
     match_groups = group_pages_into_matches(pdf, shot_page_indices)
@@ -386,7 +388,7 @@ def extract_all(pdf_path, output_dir="output"):
     # Accumulators
     matches_rows = []
     teams_dict = {}  # code -> {name, players set}
-    players_dict = {}  # (code, name) -> id
+    players_dict = {}  # (event_id, code, name) -> id
     ends_rows = []
     shots_rows = []
 
@@ -395,7 +397,7 @@ def extract_all(pdf_path, output_dir="output"):
 
     def get_or_create_player(team_code, player_name):
         nonlocal player_id_counter
-        key = (team_code, player_name)
+        key = (event_id, team_code, player_name)
         if key not in players_dict:
             player_id_counter += 1
             players_dict[key] = player_id_counter
@@ -435,6 +437,7 @@ def extract_all(pdf_path, output_dir="output"):
         final_score_2 = total_scores.get("team2", "")
 
         matches_rows.append({
+            "event_id": event_id,
             "match_id": match_id,
             "date": date_str,
             "round": round_name,
@@ -472,6 +475,7 @@ def extract_all(pdf_path, output_dir="output"):
             hammer_team = shot_metas[15]["team_code"] if shot_metas[15]["team_code"] else ""
 
             ends_rows.append({
+                "event_id": event_id,
                 "match_id": match_id,
                 "end_number": end_number,
                 "team1_code": end_info["team1_code"],
@@ -515,6 +519,7 @@ def extract_all(pdf_path, output_dir="output"):
                     teams_dict[team_code]["players"].add(player_name)
 
                 row = {
+                    "event_id": event_id,
                     "match_id": match_id,
                     "end_number": end_number,
                     "shot_number": shot_num,
@@ -548,24 +553,108 @@ def extract_all(pdf_path, output_dir="output"):
 
     pdf.close()
 
-    # ---- Write CSVs --------------------------------------------------------
-    _write_matches_csv(os.path.join(output_dir, "matches.csv"), matches_rows)
-    _write_teams_csv(os.path.join(output_dir, "teams.csv"), teams_dict)
-    _write_players_csv(os.path.join(output_dir, "players.csv"), players_dict)
-    _write_ends_csv(os.path.join(output_dir, "ends.csv"), ends_rows)
-    _write_shots_csv(os.path.join(output_dir, "shot_locations.csv"), shots_rows)
+    return matches_rows, teams_dict, players_dict, ends_rows, shots_rows
 
-    print(f"\nDone – {len(matches_rows)} matches, {len(ends_rows)} ends, "
-          f"{len(shots_rows)} shots written to {output_dir}/")
+
+def extract_all(pdf_paths, output_dir="output"):
+    """Run the full extraction pipeline for one or more PDFs and write CSV tables.
+
+    Parameters
+    ----------
+    pdf_paths : str or list[str]
+        Path to a single PDF or a list of PDF paths.
+    output_dir : str
+        Directory for output CSV files.
+    """
+    if isinstance(pdf_paths, str):
+        pdf_paths = [pdf_paths]
+
+    os.makedirs(output_dir, exist_ok=True)
+
+    # Accumulators across all events
+    events_rows = []
+    all_matches = []
+    all_teams_dict = {}   # (event_id, code) -> {name, players set}
+    all_players_dict = {} # (event_id, code, name) -> id
+    all_ends = []
+    all_shots = []
+
+    global_player_id = 0
+
+    for event_id, pdf_path in enumerate(pdf_paths, start=1):
+        event_name = os.path.splitext(os.path.basename(pdf_path))[0]
+        print(f"\n{'='*60}")
+        print(f"Event {event_id}: {event_name}")
+        print(f"  PDF: {pdf_path}")
+        print(f"{'='*60}")
+
+        events_rows.append({
+            "event_id": event_id,
+            "event_name": event_name,
+            "pdf_file": os.path.basename(pdf_path),
+        })
+
+        matches, teams_dict, players_dict, ends, shots = extract_event(pdf_path, event_id)
+
+        all_matches.extend(matches)
+        all_ends.extend(ends)
+        all_shots.extend(shots)
+
+        # Merge teams scoped by event_id
+        for code, info in teams_dict.items():
+            key = (event_id, code)
+            if key not in all_teams_dict:
+                all_teams_dict[key] = {"name": info["name"], "players": set(info["players"])}
+            else:
+                all_teams_dict[key]["players"].update(info["players"])
+                if info["name"] and not all_teams_dict[key]["name"]:
+                    all_teams_dict[key]["name"] = info["name"]
+
+        # Re-number player IDs globally
+        for (eid, tc, pn), local_id in players_dict.items():
+            if (eid, tc, pn) not in all_players_dict:
+                global_player_id += 1
+                all_players_dict[(eid, tc, pn)] = global_player_id
+
+    # Remap player IDs to global IDs in shots
+    local_to_global = {}
+    for (eid, tc, pn), gid in all_players_dict.items():
+        local_to_global[(eid, tc, pn)] = gid
+
+    for row in all_shots:
+        eid = row["event_id"]
+        tc = row["team_code"]
+        pn = row["player_name"]
+        if tc and pn:
+            row["player_id"] = local_to_global.get((eid, tc, pn), row["player_id"])
+
+    # ---- Write CSVs --------------------------------------------------------
+    _write_events_csv(os.path.join(output_dir, "events.csv"), events_rows)
+    _write_matches_csv(os.path.join(output_dir, "matches.csv"), all_matches)
+    _write_teams_csv(os.path.join(output_dir, "teams.csv"), all_teams_dict)
+    _write_players_csv(os.path.join(output_dir, "players.csv"), all_players_dict)
+    _write_ends_csv(os.path.join(output_dir, "ends.csv"), all_ends)
+    _write_shots_csv(os.path.join(output_dir, "shot_locations.csv"), all_shots)
+
+    total_matches = len(all_matches)
+    total_ends = len(all_ends)
+    total_shots = len(all_shots)
+    print(f"\nDone – {len(events_rows)} events, {total_matches} matches, "
+          f"{total_ends} ends, {total_shots} shots written to {output_dir}/")
 
 
 # ---------------------------------------------------------------------------
 # CSV writers
 # ---------------------------------------------------------------------------
 
+def _write_events_csv(path, rows):
+    fields = ["event_id", "event_name", "pdf_file"]
+    _write_csv(path, fields, rows)
+
+
 def _write_matches_csv(path, rows):
     fields = [
-        "match_id", "date", "round", "start_time",
+        "event_id", "match_id", "date", "round", "start_time",
         "team1_code", "team2_code",
         "team1_final_score", "team2_final_score",
     ]
@@ -574,29 +663,29 @@ def _write_matches_csv(path, rows):
 
 def _write_teams_csv(path, teams_dict):
     rows = []
-    for code, info in sorted(teams_dict.items()):
+    for (event_id, code), info in sorted(teams_dict.items()):
         player_list = sorted(info["players"])
-        row = {"team_code": code, "team_name": info["name"]}
+        row = {"event_id": event_id, "team_code": code, "team_name": info["name"]}
         for i, p in enumerate(player_list, start=1):
             row[f"player{i}_name"] = p
         rows.append(row)
     # Determine max players across all teams
-    max_p = max((len(r) - 2 for r in rows), default=0)
-    fields = ["team_code", "team_name"] + [f"player{i}_name" for i in range(1, max_p + 1)]
+    max_p = max((len(r) - 3 for r in rows), default=0)
+    fields = ["event_id", "team_code", "team_name"] + [f"player{i}_name" for i in range(1, max_p + 1)]
     _write_csv(path, fields, rows)
 
 
 def _write_players_csv(path, players_dict):
     rows = [
-        {"player_id": pid, "team_code": tc, "player_name": pn}
-        for (tc, pn), pid in sorted(players_dict.items(), key=lambda x: x[1])
+        {"player_id": pid, "event_id": eid, "team_code": tc, "player_name": pn}
+        for (eid, tc, pn), pid in sorted(players_dict.items(), key=lambda x: x[1])
     ]
-    _write_csv(path, ["player_id", "team_code", "player_name"], rows)
+    _write_csv(path, ["player_id", "event_id", "team_code", "player_name"], rows)
 
 
 def _write_ends_csv(path, rows):
     fields = [
-        "match_id", "end_number",
+        "event_id", "match_id", "end_number",
         "team1_code", "team2_code",
         "team1_score_before", "team2_score_before",
         "team1_score_this_end", "team2_score_this_end",
@@ -609,7 +698,7 @@ def _write_ends_csv(path, rows):
 
 def _write_shots_csv(path, rows):
     base_fields = [
-        "match_id", "end_number", "shot_number",
+        "event_id", "match_id", "end_number", "shot_number",
         "team_code", "player_id", "player_name",
         "shot_type", "turn", "accuracy",
         "team1_stones_in_play", "team2_stones_in_play",
@@ -636,16 +725,17 @@ def _write_csv(path, fieldnames, rows):
 
 def main():
     parser = argparse.ArgumentParser(description="Extract curling shot data from PDF")
-    parser.add_argument("pdf", help="Path to the tournament results PDF")
+    parser.add_argument("pdfs", nargs="+", help="Path(s) to tournament results PDF(s)")
     parser.add_argument("--output-dir", default="output",
                         help="Directory for output CSV files (default: output)")
     args = parser.parse_args()
 
-    if not os.path.isfile(args.pdf):
-        parser.error(f"PDF not found: {args.pdf}")
+    for pdf_path in args.pdfs:
+        if not os.path.isfile(pdf_path):
+            parser.error(f"PDF not found: {pdf_path}")
 
-    print(f"Extracting shot data from {args.pdf} …")
-    extract_all(args.pdf, args.output_dir)
+    print(f"Extracting shot data from {len(args.pdfs)} PDF(s) …")
+    extract_all(args.pdfs, args.output_dir)
 
 
 if __name__ == "__main__":
