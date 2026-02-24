@@ -209,3 +209,6 @@ __marimo__/
 # Output CSV files
 # output/
 
+# Data folder (PDFs are fetched from URLs at runtime)
+data/
+

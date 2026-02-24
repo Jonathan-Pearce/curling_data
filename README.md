@@ -11,7 +11,7 @@ This tool parses curling tournament PDF files to extract structured data about e
 - **Shot metadata** (player, shot type, turn direction, accuracy percentage)
 - **Stone positions** detected via OpenCV colour segmentation, normalised relative to the house centre
 
-Multiple events can be processed together, producing unified data tables with an `event_id` to distinguish between tournaments.
+PDFs are fetched directly from URLs (e.g. [curlit.com](https://curlit.com/results)) at runtime, so there is no need to store large PDF files in the repository. Multiple events can be processed together, producing unified data tables with an `event_id` to distinguish between tournaments.
 
 ## Requirements
 
@@ -28,10 +28,6 @@ pip install -r requirements.txt
 
 ```
 curling_data/
-├── data/
-│   └── pdfs/                  # Tournament PDF source files
-│       ├── ECC2025_ResultsBook_Men_A-Division.pdf
-│       └── WMCC2023_ResultsBook.pdf
 ├── output/                    # Generated CSV data tables
 │   ├── events.csv
 │   ├── matches.csv
@@ -48,16 +44,22 @@ curling_data/
 
 ## Usage
 
-Process a single PDF:
+Process the default PDFs (fetched from curlit.com):
 
 ```bash
-python extract_shot_data.py data/pdfs/ECC2025_ResultsBook_Men_A-Division.pdf --output-dir output
+python extract_shot_data.py
 ```
 
-Process multiple PDFs at once:
+Process specific PDFs by URL:
 
 ```bash
-python extract_shot_data.py data/pdfs/ECC2025_ResultsBook_Men_A-Division.pdf data/pdfs/WMCC2023_ResultsBook.pdf --output-dir output
+python extract_shot_data.py https://curlit.com/PDF/ECC2025_ResultsBook_Men_A-Division.pdf --output-dir output
+```
+
+Process multiple PDFs (local paths and/or URLs):
+
+```bash
+python extract_shot_data.py https://curlit.com/PDF/ECC2025_ResultsBook_Men_A-Division.pdf https://curlit.com/PDF/WMCC2023_ResultsBook.pdf --output-dir output
 ```
 
 ## Output Tables
