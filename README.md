@@ -4,12 +4,14 @@ Extract shot-by-shot curling data from tournament PDF result books.
 
 ## Overview
 
-This tool parses curling tournament PDF files (e.g., ECC 2025 Men's A-Division Results Book) to extract structured data about every shot in every end of every match, including:
+This tool parses curling tournament PDF files to extract structured data about every shot in every end of every match, including:
 
 - **Match metadata** (date, round, teams, final scores)
 - **End metadata** (end number, scores, hammer team, time remaining)
 - **Shot metadata** (player, shot type, turn direction, accuracy percentage)
 - **Stone positions** detected via OpenCV colour segmentation, normalised relative to the house centre
+
+Multiple events can be processed together, producing unified data tables with an `event_id` to distinguish between tournaments.
 
 ## Requirements
 
@@ -22,20 +24,58 @@ This tool parses curling tournament PDF files (e.g., ECC 2025 Men's A-Division R
 pip install -r requirements.txt
 ```
 
+## Project Structure
+
+```
+curling_data/
+├── data/
+│   └── pdfs/                  # Tournament PDF source files
+│       ├── ECC2025_ResultsBook_Men_A-Division.pdf
+│       └── WMCC2023_ResultsBook.pdf
+├── output/                    # Generated CSV data tables
+│   ├── events.csv
+│   ├── matches.csv
+│   ├── teams.csv
+│   ├── players.csv
+│   ├── ends.csv
+│   └── shot_locations.csv
+├── tests/
+│   └── test_extract_shot_data.py
+├── extract_shot_data.py       # Main extraction script
+├── requirements.txt
+└── README.md
+```
+
 ## Usage
 
+Process a single PDF:
+
 ```bash
-python extract_shot_data.py ECC2025_ResultsBook_Men_A-Division.pdf --output-dir output
+python extract_shot_data.py data/pdfs/ECC2025_ResultsBook_Men_A-Division.pdf --output-dir output
+```
+
+Process multiple PDFs at once:
+
+```bash
+python extract_shot_data.py data/pdfs/ECC2025_ResultsBook_Men_A-Division.pdf data/pdfs/WMCC2023_ResultsBook.pdf --output-dir output
 ```
 
 ## Output Tables
 
-The script produces five CSV files in the output directory:
+The script produces six CSV files in the output directory:
+
+### `events.csv`
+| Column | Description |
+|--------|-------------|
+| event_id | Unique event identifier |
+| event_name | Name derived from the PDF filename |
+| pdf_file | Source PDF filename |
 
 ### `matches.csv`
 | Column | Description |
 |--------|-------------|
-| match_id | Unique match identifier |
+| event_id | Event identifier |
+| match_id | Unique match identifier (per event) |
 | date | Match date |
 | round | Round name (e.g., "Gold Medal Game", "Round Robin Session 1 - Sheet A") |
 | start_time | Scheduled start time |
@@ -47,6 +87,7 @@ The script produces five CSV files in the output directory:
 ### `teams.csv`
 | Column | Description |
 |--------|-------------|
+| event_id | Event identifier |
 | team_code | Three-letter team code |
 | team_name | Full team/country name |
 | player1_name … playerN_name | Player names on the roster |
@@ -55,12 +96,14 @@ The script produces five CSV files in the output directory:
 | Column | Description |
 |--------|-------------|
 | player_id | Unique player identifier |
+| event_id | Event identifier |
 | team_code | Team the player belongs to |
 | player_name | Player name as it appears in the PDF |
 
 ### `ends.csv`
 | Column | Description |
 |--------|-------------|
+| event_id | Event identifier |
 | match_id | Match identifier |
 | end_number | End number (1-based) |
 | team1_code, team2_code | Team codes |
@@ -73,6 +116,7 @@ The script produces five CSV files in the output directory:
 ### `shot_locations.csv`
 | Column | Description |
 |--------|-------------|
+| event_id | Event identifier |
 | match_id | Match identifier |
 | end_number | End number |
 | shot_number | Shot number within the end (1–16) |
@@ -101,3 +145,11 @@ Stone positions use a Cartesian coordinate system centred on the button (house c
 - **angle**: angle in degrees (0° = right, 90° = toward hack, −90° = toward far end)
 
 Both Cartesian (x, y) and polar (dist, angle) representations are included to support different analysis needs.
+
+## Future Considerations
+
+- **Event metadata enrichment**: Add fields like location, competition level, gender category, and date range to `events.csv`.
+- **Database backend**: Migrate from flat CSV files to a relational database (e.g., SQLite or PostgreSQL) for better querying and referential integrity.
+- **Incremental processing**: Skip PDFs that have already been processed, supporting append-only workflows.
+- **Configuration file**: Use a YAML/JSON config to define event metadata (name, gender, year) alongside each PDF path.
+- **Automated PDF ingestion**: Watch a directory for new PDFs and process them automatically.
