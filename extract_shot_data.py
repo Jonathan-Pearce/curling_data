@@ -26,6 +26,7 @@ import io
 import math
 import os
 import re
+import urllib.error
 import urllib.request
 
 import cv2
@@ -83,8 +84,11 @@ def _is_url(source):
 def _open_pdf(source):
     """Open a PDF from a local path or URL, returning a pdfplumber PDF object."""
     if _is_url(source):
-        response = urllib.request.urlopen(source)
-        data = response.read()
+        try:
+            response = urllib.request.urlopen(source, timeout=30)
+            data = response.read()
+        except (urllib.error.URLError, urllib.error.HTTPError, OSError) as exc:
+            raise RuntimeError(f"Failed to download PDF from {source}: {exc}") from exc
         return pdfplumber.open(io.BytesIO(data))
     return pdfplumber.open(source)
 

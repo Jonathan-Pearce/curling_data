@@ -3,6 +3,7 @@
 import math
 import os
 import csv
+import urllib.error
 import urllib.request
 
 import pytest
@@ -33,7 +34,7 @@ def _url_accessible(url):
         req = urllib.request.Request(url, method="HEAD")
         urllib.request.urlopen(req, timeout=10)
         return True
-    except Exception:
+    except (urllib.error.URLError, urllib.error.HTTPError, OSError):
         return False
 
 
