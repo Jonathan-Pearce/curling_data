@@ -5,11 +5,13 @@ Parses curling tournament PDFs to extract match, end, and shot-level data
 including stone positions detected via OpenCV color-based segmentation.
 
 PDFs can be provided as local file paths or HTTP(S) URLs.  When no arguments
-are supplied, the script downloads and processes the default result-book PDFs
-from curlit.com.
+are supplied, the script reads ``result_urls.csv`` (produced by
+``scrape_results.py``) and processes every result-book PDF dated 2013 or
+later.
 
 Usage:
     python extract_shot_data.py [<pdf_or_url> ...] [--output-dir <dir>]
+                                [--results-csv <path>] [--min-year <year>]
 
 Outputs CSV files:
     - events.csv
@@ -40,6 +42,9 @@ DEFAULT_PDF_URLS = [
     "https://curlit.com/PDF/ECC2025_ResultsBook_Men_A-Division.pdf",
     "https://curlit.com/PDF/WMCC2023_ResultsBook.pdf",
 ]
+
+DEFAULT_RESULTS_CSV = os.path.join("output", "result_urls.csv")
+DEFAULT_MIN_YEAR = 2013
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -91,6 +96,26 @@ def _open_pdf(source):
             raise RuntimeError(f"Failed to download PDF from {source}: {exc}") from exc
         return pdfplumber.open(io.BytesIO(data))
     return pdfplumber.open(source)
+
+
+def load_result_urls(csv_path, min_year=DEFAULT_MIN_YEAR):
+    """Load result-book URLs from *csv_path*, keeping only rows with year >= *min_year*.
+
+    Returns a list of dicts, each with keys:
+        result_book_url, tournament_name, year, location, gender,
+        result_summary_url
+    """
+    rows = []
+    with open(csv_path, newline="", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            try:
+                year = int(row["year"])
+            except (ValueError, KeyError):
+                continue
+            if year >= min_year and row.get("result_book_url"):
+                rows.append(row)
+    return rows
 
 
 # ---------------------------------------------------------------------------
@@ -595,7 +620,7 @@ def extract_event(pdf_path, event_id):
     return matches_rows, teams_dict, players_dict, ends_rows, shots_rows
 
 
-def extract_all(pdf_paths, output_dir="output"):
+def extract_all(pdf_paths, output_dir="output", event_metadata=None):
     """Run the full extraction pipeline for one or more PDFs and write CSV tables.
 
     Parameters
@@ -604,9 +629,16 @@ def extract_all(pdf_paths, output_dir="output"):
         Path to a single PDF, an HTTP(S) URL, or a list of paths/URLs.
     output_dir : str
         Directory for output CSV files.
+    event_metadata : list[dict] or None
+        Optional per-event metadata dicts (one per pdf_path) with keys such as
+        ``tournament_name``, ``year``, ``location``, ``gender``.  When
+        provided, the extra columns are included in ``events.csv``.
     """
     if isinstance(pdf_paths, str):
         pdf_paths = [pdf_paths]
+
+    if event_metadata is None:
+        event_metadata = [{}] * len(pdf_paths)
 
     os.makedirs(output_dir, exist_ok=True)
 
@@ -620,20 +652,37 @@ def extract_all(pdf_paths, output_dir="output"):
 
     global_player_id = 0
 
-    for event_id, pdf_path in enumerate(pdf_paths, start=1):
-        event_name = os.path.splitext(os.path.basename(pdf_path))[0]
+    for event_id, (pdf_path, meta) in enumerate(
+        zip(pdf_paths, event_metadata), start=1
+    ):
+        event_name = meta.get(
+            "tournament_name",
+            os.path.splitext(os.path.basename(pdf_path))[0],
+        )
         print(f"\n{'='*60}")
-        print(f"Event {event_id}: {event_name}")
+        print(f"Event {event_id}/{len(pdf_paths)}: {event_name}")
         print(f"  PDF: {pdf_path}")
         print(f"{'='*60}")
 
-        events_rows.append({
+        event_row = {
             "event_id": event_id,
             "event_name": event_name,
             "pdf_file": os.path.basename(pdf_path),
-        })
+        }
+        # Include extra metadata columns when available
+        for col in ("year", "location", "gender"):
+            if meta.get(col):
+                event_row[col] = meta[col]
 
-        matches, teams_dict, players_dict, ends, shots = extract_event(pdf_path, event_id)
+        events_rows.append(event_row)
+
+        try:
+            matches, teams_dict, players_dict, ends, shots = extract_event(
+                pdf_path, event_id
+            )
+        except Exception as exc:
+            print(f"  ERROR processing {pdf_path}: {exc}")
+            continue
 
         all_matches.extend(matches)
         all_ends.extend(ends)
@@ -687,7 +736,7 @@ def extract_all(pdf_paths, output_dir="output"):
 # ---------------------------------------------------------------------------
 
 def _write_events_csv(path, rows):
-    fields = ["event_id", "event_name", "pdf_file"]
+    fields = ["event_id", "event_name", "year", "location", "gender", "pdf_file"]
     _write_csv(path, fields, rows)
 
 
@@ -766,19 +815,44 @@ def main():
     parser = argparse.ArgumentParser(description="Extract curling shot data from PDF")
     parser.add_argument("pdfs", nargs="*", default=None,
                         help="Path(s) or URL(s) to tournament results PDF(s). "
-                             "If omitted, the default PDF URLs are used.")
+                             "If omitted, URLs are read from --results-csv.")
     parser.add_argument("--output-dir", default="output",
                         help="Directory for output CSV files (default: output)")
+    parser.add_argument("--results-csv", default=DEFAULT_RESULTS_CSV,
+                        help="Path to result_urls.csv produced by scrape_results.py "
+                             "(default: output/result_urls.csv). Used when no "
+                             "positional PDF arguments are provided.")
+    parser.add_argument("--min-year", type=int, default=DEFAULT_MIN_YEAR,
+                        help="Minimum event year to include when reading from "
+                             "--results-csv (default: 2013).")
     args = parser.parse_args()
 
-    pdf_sources = args.pdfs if args.pdfs else DEFAULT_PDF_URLS
+    if args.pdfs:
+        # Explicit PDFs given on the command line
+        pdf_sources = args.pdfs
+        metadata = None
 
-    for src in pdf_sources:
-        if not _is_url(src) and not os.path.isfile(src):
-            parser.error(f"PDF not found: {src}")
+        for src in pdf_sources:
+            if not _is_url(src) and not os.path.isfile(src):
+                parser.error(f"PDF not found: {src}")
+    else:
+        # Read from result_urls.csv
+        if not os.path.isfile(args.results_csv):
+            parser.error(
+                f"Results CSV not found: {args.results_csv}. "
+                "Run scrape_results.py first, or provide PDF paths directly."
+            )
+        rows = load_result_urls(args.results_csv, min_year=args.min_year)
+        if not rows:
+            parser.error(
+                f"No result-book URLs with year >= {args.min_year} found "
+                f"in {args.results_csv}."
+            )
+        pdf_sources = [r["result_book_url"] for r in rows]
+        metadata = rows
 
     print(f"Extracting shot data from {len(pdf_sources)} PDF(s) …")
-    extract_all(pdf_sources, args.output_dir)
+    extract_all(pdf_sources, args.output_dir, event_metadata=metadata)
 
 
 if __name__ == "__main__":

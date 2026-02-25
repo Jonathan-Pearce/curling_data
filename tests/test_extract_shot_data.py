@@ -21,7 +21,9 @@ from extract_shot_data import (
     extract_event,
     _open_pdf,
     _is_url,
+    load_result_urls,
     DEFAULT_PDF_URLS,
+    DEFAULT_MIN_YEAR,
 )
 
 PDF_URL = "https://curlit.com/PDF/ECC2025_ResultsBook_Men_A-Division.pdf"
@@ -139,6 +141,89 @@ class TestUrlHelpers:
         assert len(DEFAULT_PDF_URLS) == 2
         for url in DEFAULT_PDF_URLS:
             assert _is_url(url)
+
+
+class TestLoadResultUrls:
+    def test_filters_by_min_year(self, tmp_path):
+        csv_path = str(tmp_path / "result_urls.csv")
+        with open(csv_path, "w", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=[
+                "tournament_name", "year", "location", "gender",
+                "result_book_url", "result_summary_url",
+            ])
+            writer.writeheader()
+            writer.writerow({
+                "tournament_name": "Old Event", "year": "2012",
+                "location": "City", "gender": "m",
+                "result_book_url": "https://example.com/old.pdf",
+                "result_summary_url": "",
+            })
+            writer.writerow({
+                "tournament_name": "New Event", "year": "2013",
+                "location": "Town", "gender": "w",
+                "result_book_url": "https://example.com/new.pdf",
+                "result_summary_url": "",
+            })
+            writer.writerow({
+                "tournament_name": "Recent Event", "year": "2024",
+                "location": "Place", "gender": "mx",
+                "result_book_url": "https://example.com/recent.pdf",
+                "result_summary_url": "",
+            })
+
+        rows = load_result_urls(csv_path, min_year=2013)
+        assert len(rows) == 2
+        assert rows[0]["tournament_name"] == "New Event"
+        assert rows[1]["tournament_name"] == "Recent Event"
+
+    def test_skips_invalid_year(self, tmp_path):
+        csv_path = str(tmp_path / "result_urls.csv")
+        with open(csv_path, "w", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=[
+                "tournament_name", "year", "location", "gender",
+                "result_book_url", "result_summary_url",
+            ])
+            writer.writeheader()
+            writer.writerow({
+                "tournament_name": "Bad Year", "year": "unknown",
+                "location": "City", "gender": "m",
+                "result_book_url": "https://example.com/bad.pdf",
+                "result_summary_url": "",
+            })
+
+        rows = load_result_urls(csv_path, min_year=2013)
+        assert len(rows) == 0
+
+    def test_skips_empty_url(self, tmp_path):
+        csv_path = str(tmp_path / "result_urls.csv")
+        with open(csv_path, "w", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=[
+                "tournament_name", "year", "location", "gender",
+                "result_book_url", "result_summary_url",
+            ])
+            writer.writeheader()
+            writer.writerow({
+                "tournament_name": "No URL", "year": "2024",
+                "location": "City", "gender": "m",
+                "result_book_url": "",
+                "result_summary_url": "",
+            })
+
+        rows = load_result_urls(csv_path, min_year=2013)
+        assert len(rows) == 0
+
+    def test_default_min_year(self):
+        assert DEFAULT_MIN_YEAR == 2013
+
+    def test_with_actual_csv(self):
+        csv_path = os.path.join("output", "result_urls.csv")
+        if not os.path.isfile(csv_path):
+            pytest.skip("result_urls.csv not present")
+        rows = load_result_urls(csv_path)
+        assert len(rows) > 0
+        for row in rows:
+            assert int(row["year"]) >= 2013
+            assert row["result_book_url"]
 
 
 # ---------------------------------------------------------------------------
