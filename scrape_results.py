@@ -46,7 +46,7 @@ def parse_tournament_text(text: str):
         "Milano Cortina 2026 Olympic Winter Games, Curling in Cortina, Italy"
 
     Returns (name, year, location) where *year* is the **first** 4-digit year
-    found and *location* is everything after the last `` in `` token (if any).
+    found and *location* is everything after the last ``in`` token (if any).
     """
     text = text.strip()
     # Extract year (first 4-digit number)
@@ -125,16 +125,12 @@ def _make_absolute(href: str) -> str:
 
 
 def _extract_links(cell):
-    """Return a list of (absolute_url, gender_code) tuples from a <td> cell."""
+    """Return a list of (absolute_url, title, img_src) from a <td> cell."""
     links = []
     if cell is None:
         return links
     for a_tag in cell.find_all("a", href=True):
         href = a_tag["href"]
-        if "ResultsBook" not in href and "Resultsbook" not in href and "ResultsBook" not in href.replace("_", ""):
-            # Also catch "Resultsbook" and other variants
-            if "resultsbook" not in href.lower() and "resultssummary" not in href.lower():
-                continue
         title = a_tag.get("title", "")
         img = a_tag.find("img")
         img_src = img.get("src", "") if img else ""
@@ -178,26 +174,17 @@ def scrape_results(html: str):
 
         # Gather results-book links
         rb_links = []
-        for a_tag in rb_cell.find_all("a", href=True):
-            href = a_tag["href"]
-            title = a_tag.get("title", "")
-            img = a_tag.find("img")
-            img_src = img.get("src", "") if img else ""
-            # Only include actual PDF result-book links
-            if "resultsbook" in href.lower() or "resultbook" in href.lower():
+        for url, title, img_src in _extract_links(rb_cell):
+            if "resultsbook" in url.lower() or "resultbook" in url.lower():
                 gender = _resolve_gender(title, img_src, tournament_text)
-                rb_links.append((_make_absolute(href), gender, title))
+                rb_links.append((url, gender, title))
 
         # Gather results-summary links
         rs_links = []
-        for a_tag in rs_cell.find_all("a", href=True):
-            href = a_tag["href"]
-            title = a_tag.get("title", "")
-            img = a_tag.find("img")
-            img_src = img.get("src", "") if img else ""
-            if "resultssummary" in href.lower() or "resultsummary" in href.lower():
+        for url, title, img_src in _extract_links(rs_cell):
+            if "resultssummary" in url.lower() or "resultsummary" in url.lower():
                 gender_rs = _resolve_gender(title, img_src, tournament_text)
-                rs_links.append((_make_absolute(href), gender_rs))
+                rs_links.append((url, gender_rs))
 
         if not rb_links:
             continue  # no result-book PDFs for this tournament
