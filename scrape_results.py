@@ -214,8 +214,8 @@ def write_csv(rows, output_path: str):
         "tournament_name",
         "year",
         "location",
-        "result_book_url",
         "gender",
+        "result_book_url",
         "result_summary_url",
     ]
     with open(output_path, "w", newline="", encoding="utf-8") as f:
