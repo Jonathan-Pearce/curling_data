@@ -680,7 +680,7 @@ def extract_all(pdf_paths, output_dir="output", event_metadata=None):
             matches, teams_dict, players_dict, ends, shots = extract_event(
                 pdf_path, event_id
             )
-        except Exception as exc:
+        except (RuntimeError, OSError, ValueError, KeyError) as exc:
             print(f"  ERROR processing {pdf_path}: {exc}")
             continue
 
