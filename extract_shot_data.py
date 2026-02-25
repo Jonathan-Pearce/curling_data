@@ -4,8 +4,12 @@ Curling Shot Data Extractor
 Parses curling tournament PDFs to extract match, end, and shot-level data
 including stone positions detected via OpenCV color-based segmentation.
 
+PDFs can be provided as local file paths or HTTP(S) URLs.  When no arguments
+are supplied, the script downloads and processes the default result-book PDFs
+from curlit.com.
+
 Usage:
-    python extract_shot_data.py <pdf_path> [<pdf_path2> ...] [--output-dir <dir>]
+    python extract_shot_data.py [<pdf_or_url> ...] [--output-dir <dir>]
 
 Outputs CSV files:
     - events.csv
@@ -18,13 +22,24 @@ Outputs CSV files:
 
 import argparse
 import csv
+import io
 import math
 import os
 import re
+import urllib.error
+import urllib.request
 
 import cv2
 import numpy as np
 import pdfplumber
+
+# ---------------------------------------------------------------------------
+# Default PDF URLs (curlit.com result books)
+# ---------------------------------------------------------------------------
+DEFAULT_PDF_URLS = [
+    "https://curlit.com/PDF/ECC2025_ResultsBook_Men_A-Division.pdf",
+    "https://curlit.com/PDF/WMCC2023_ResultsBook.pdf",
+]
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -55,6 +70,28 @@ STONE_Y_MIN_PX = 15
 STONE_Y_MAX_FRAC = 0.82  # fraction of crop height
 
 MAX_STONES_PER_TEAM = 8
+
+# ---------------------------------------------------------------------------
+# URL / PDF helpers
+# ---------------------------------------------------------------------------
+
+
+def _is_url(source):
+    """Return True if *source* looks like an HTTP(S) URL."""
+    return source.startswith(("http://", "https://"))
+
+
+def _open_pdf(source):
+    """Open a PDF from a local path or URL, returning a pdfplumber PDF object."""
+    if _is_url(source):
+        try:
+            response = urllib.request.urlopen(source, timeout=30)
+            data = response.read()
+        except (urllib.error.URLError, urllib.error.HTTPError, OSError) as exc:
+            raise RuntimeError(f"Failed to download PDF from {source}: {exc}") from exc
+        return pdfplumber.open(io.BytesIO(data))
+    return pdfplumber.open(source)
+
 
 # ---------------------------------------------------------------------------
 # PDF helpers
@@ -378,10 +415,12 @@ def group_pages_into_matches(pdf, shot_page_indices):
 def extract_event(pdf_path, event_id):
     """Extract data from a single PDF and return raw data structures.
 
+    *pdf_path* can be a local file path **or** an HTTP(S) URL.
+
     Returns (matches_rows, teams_dict, players_dict, ends_rows, shots_rows)
     with *event_id* embedded in every row.
     """
-    pdf = pdfplumber.open(pdf_path)
+    pdf = _open_pdf(pdf_path)
     shot_page_indices = find_shot_pages(pdf)
     match_groups = group_pages_into_matches(pdf, shot_page_indices)
 
@@ -562,7 +601,7 @@ def extract_all(pdf_paths, output_dir="output"):
     Parameters
     ----------
     pdf_paths : str or list[str]
-        Path to a single PDF or a list of PDF paths.
+        Path to a single PDF, an HTTP(S) URL, or a list of paths/URLs.
     output_dir : str
         Directory for output CSV files.
     """
@@ -725,17 +764,21 @@ def _write_csv(path, fieldnames, rows):
 
 def main():
     parser = argparse.ArgumentParser(description="Extract curling shot data from PDF")
-    parser.add_argument("pdfs", nargs="+", help="Path(s) to tournament results PDF(s)")
+    parser.add_argument("pdfs", nargs="*", default=None,
+                        help="Path(s) or URL(s) to tournament results PDF(s). "
+                             "If omitted, the default PDF URLs are used.")
     parser.add_argument("--output-dir", default="output",
                         help="Directory for output CSV files (default: output)")
     args = parser.parse_args()
 
-    for pdf_path in args.pdfs:
-        if not os.path.isfile(pdf_path):
-            parser.error(f"PDF not found: {pdf_path}")
+    pdf_sources = args.pdfs if args.pdfs else DEFAULT_PDF_URLS
 
-    print(f"Extracting shot data from {len(args.pdfs)} PDF(s) …")
-    extract_all(args.pdfs, args.output_dir)
+    for src in pdf_sources:
+        if not _is_url(src) and not os.path.isfile(src):
+            parser.error(f"PDF not found: {src}")
+
+    print(f"Extracting shot data from {len(pdf_sources)} PDF(s) …")
+    extract_all(pdf_sources, args.output_dir)
 
 
 if __name__ == "__main__":

@@ -3,6 +3,8 @@
 import math
 import os
 import csv
+import urllib.error
+import urllib.request
 
 import pytest
 
@@ -17,13 +19,27 @@ from extract_shot_data import (
     group_pages_into_matches,
     extract_all,
     extract_event,
+    _open_pdf,
+    _is_url,
+    DEFAULT_PDF_URLS,
 )
 
-PDF_PATH = os.path.join(os.path.dirname(__file__), "..", "data", "pdfs", "ECC2025_ResultsBook_Men_A-Division.pdf")
-PDF_EXISTS = os.path.isfile(PDF_PATH)
+PDF_URL = "https://curlit.com/PDF/ECC2025_ResultsBook_Men_A-Division.pdf"
+WMCC_PDF_URL = "https://curlit.com/PDF/WMCC2023_ResultsBook.pdf"
 
-WMCC_PDF_PATH = os.path.join(os.path.dirname(__file__), "..", "data", "pdfs", "WMCC2023_ResultsBook.pdf")
-WMCC_PDF_EXISTS = os.path.isfile(WMCC_PDF_PATH)
+
+def _url_accessible(url):
+    """Return True if a HEAD request to *url* succeeds."""
+    try:
+        req = urllib.request.Request(url, method="HEAD")
+        urllib.request.urlopen(req, timeout=10)
+        return True
+    except (urllib.error.URLError, urllib.error.HTTPError, OSError):
+        return False
+
+
+PDF_AVAILABLE = _url_accessible(PDF_URL)
+WMCC_PDF_AVAILABLE = _url_accessible(WMCC_PDF_URL)
 
 
 # ---------------------------------------------------------------------------
@@ -106,16 +122,34 @@ class TestParseScoreBox:
         assert times == {}
 
 
+class TestUrlHelpers:
+    def test_is_url_http(self):
+        assert _is_url("http://example.com/file.pdf")
+
+    def test_is_url_https(self):
+        assert _is_url("https://curlit.com/PDF/ECC2025_ResultsBook_Men_A-Division.pdf")
+
+    def test_is_url_local_path(self):
+        assert not _is_url("/some/local/path.pdf")
+
+    def test_is_url_relative_path(self):
+        assert not _is_url("data/pdfs/file.pdf")
+
+    def test_default_pdf_urls(self):
+        assert len(DEFAULT_PDF_URLS) == 2
+        for url in DEFAULT_PDF_URLS:
+            assert _is_url(url)
+
+
 # ---------------------------------------------------------------------------
 # Integration tests (require PDF)
 # ---------------------------------------------------------------------------
 
-@pytest.mark.skipif(not PDF_EXISTS, reason="PDF not available")
+@pytest.mark.skipif(not PDF_AVAILABLE, reason="PDF URL not accessible")
 class TestWithPDF:
     @pytest.fixture(autouse=True)
     def setup_pdf(self):
-        import pdfplumber
-        self.pdf = pdfplumber.open(PDF_PATH)
+        self.pdf = _open_pdf(PDF_URL)
         yield
         self.pdf.close()
 
@@ -186,7 +220,7 @@ class TestWithPDF:
 
     def test_full_extraction(self, tmp_path):
         output_dir = str(tmp_path / "output")
-        extract_all(PDF_PATH, output_dir)
+        extract_all(PDF_URL, output_dir)
 
         for fname in ["events.csv", "matches.csv", "teams.csv", "players.csv", "ends.csv", "shot_locations.csv"]:
             fpath = os.path.join(output_dir, fname)
@@ -225,11 +259,11 @@ class TestWithPDF:
         assert players[0]["event_id"] == "1"
 
 
-@pytest.mark.skipif(not (PDF_EXISTS and WMCC_PDF_EXISTS), reason="Both PDFs required")
+@pytest.mark.skipif(not (PDF_AVAILABLE and WMCC_PDF_AVAILABLE), reason="Both PDF URLs required")
 class TestMultiEvent:
     def test_multi_event_extraction(self, tmp_path):
         output_dir = str(tmp_path / "output")
-        extract_all([PDF_PATH, WMCC_PDF_PATH], output_dir)
+        extract_all([PDF_URL, WMCC_PDF_URL], output_dir)
 
         with open(os.path.join(output_dir, "events.csv")) as f:
             events = list(csv.DictReader(f))
