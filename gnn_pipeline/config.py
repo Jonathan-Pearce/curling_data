@@ -42,7 +42,7 @@ class GNNConfig:
 
     # Shot-type classification ---------------------------------------------
     base_shot_types: List[str] = field(default_factory=lambda: list(BASE_SHOT_TYPES))
-    num_shot_types: int = len(BASE_SHOT_TYPES)
+    num_shot_types: int = field(init=False)
 
     # Training -------------------------------------------------------------
     learning_rate: float = 1e-3
@@ -54,3 +54,6 @@ class GNNConfig:
 
     # Device (kept configurable; defaults to CPU) --------------------------
     device: str = "cpu"
+
+    def __post_init__(self) -> None:
+        self.num_shot_types = len(self.base_shot_types)

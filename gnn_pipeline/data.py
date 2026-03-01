@@ -133,30 +133,24 @@ def load_and_preprocess(
             )
 
             # Metadata
-            is_team1 = 1.0 if row["team_code"] == shots[0].get("team_code", "") else 0.0
-            # Infer from end data: check if first shot's team == team1 in ends
-            # Team1 is the first team listed in ends.csv for this end
+            # Whether the shooting team matches the first shooter of this end
+            is_first_team = 1.0 if row["team_code"] == shots[0].get("team_code", "") else 0.0
             shot_num = int(row["shot_number"])
             end_num = int(row["end_number"])
 
-            score_before_1 = 0.0
-            score_before_2 = 0.0
             is_hammer = 0.0
-            # Try to get score context from ends data
             if end_info is not None:
                 hammer_code = end_info[2]
                 is_hammer = 1.0 if row["team_code"] == hammer_code else 0.0
 
-            # Load score_before from the ends CSV via a secondary lookup
-            # (approximate: use end_info scores for simplicity)
             turn_enc = _encode_turn(row.get("turn", ""))
 
             metadata = torch.tensor(
                 [
-                    is_team1,
+                    is_first_team,
                     shot_num / 16.0,
                     end_num / 12.0,
-                    score_before_1 / 10.0,
+                    0.0,  # reserved for score context
                     is_hammer,
                     turn_enc,
                 ],

@@ -71,7 +71,7 @@ class TestBuildBoardGraph:
     def test_single_stone(self):
         stones = [{"x": 1.0, "y": 2.0, "dist": 2.24, "angle": 63.4, "team": 1}]
         nf, adj, mask = build_board_graph(stones, max_stones=4)
-        assert mask[0].item() is True
+        assert mask[0].item()
         assert not mask[1:].any()
         assert nf[0, 0].item() == pytest.approx(1.0)
         assert nf[0, 4].item() == 1.0  # is_team1
@@ -82,7 +82,7 @@ class TestBuildBoardGraph:
         stones = _dummy_stones(3)
         nf, adj, mask = build_board_graph(stones, max_stones=4)
         assert mask[:3].all()
-        assert not mask[3].item()
+        assert not mask[3]
         # Adjacency should be normalised for existing nodes
         assert adj[0, :3].sum().item() == pytest.approx(1.0, abs=1e-5)
 
@@ -279,7 +279,7 @@ class TestCurlingDataset:
         ds = CurlingDataset([sample])
         assert len(ds) == 1
         item = ds[0]
-        assert item["prev_is_null"].item() is True
+        assert item["prev_is_null"].item()
         assert item["accuracy"].item() == pytest.approx(0.75)
         assert item["shot_type"].item() == 2
 
