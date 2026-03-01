@@ -36,8 +36,10 @@ curling_data/
 │   ├── ends.csv
 │   └── shot_locations.csv
 ├── tests/
-│   └── test_extract_shot_data.py
+│   ├── test_extract_shot_data.py
+│   └── test_generate_board_image.py
 ├── extract_shot_data.py       # Main extraction script
+├── generate_board_image.py    # Board image generation for data QA
 ├── requirements.txt
 └── README.md
 ```
@@ -60,6 +62,30 @@ Process multiple PDFs (local paths and/or URLs):
 
 ```bash
 python extract_shot_data.py https://curlit.com/PDF/ECC2025_ResultsBook_Men_A-Division.pdf https://curlit.com/PDF/WMCC2023_ResultsBook.pdf --output-dir output
+```
+
+## Board Image Generation
+
+Recreate curling board images from the scraped data for data quality verification. This renders a single shot's stone positions onto a curling house diagram, allowing visual comparison against the original PDF boards.
+
+Generate a board image for a specific shot:
+
+```bash
+python generate_board_image.py --csv output/shot_locations.csv --event 1 --match 1 --end 7 --shot 12 -o board.png
+```
+
+The function can also be used programmatically:
+
+```python
+from generate_board_image import generate_board_image, generate_board_image_from_csv
+
+# From a CSV file
+img = generate_board_image_from_csv("output/shot_locations.csv", event_id=1, match_id=1, end_number=7, shot_number=12)
+img.save("board.png")
+
+# From a shot data dict (e.g. a row from shot_locations.csv)
+img = generate_board_image(shot_data)
+img.show()
 ```
 
 ## Output Tables

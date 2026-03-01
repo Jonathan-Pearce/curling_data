@@ -1,0 +1,257 @@
+"""
+Generate curling board images from shot location data.
+
+Recreates single-shot board diagrams for data quality verification
+by comparing reconstructed images to the original scraped data.
+
+Usage:
+    python generate_board_image.py --csv output/shot_locations.csv \
+        --event 1 --match 1 --end 1 --shot 5 -o board.png
+"""
+
+import argparse
+import csv
+import math
+
+from PIL import Image, ImageDraw
+
+# ---------------------------------------------------------------------------
+# Board rendering constants
+# ---------------------------------------------------------------------------
+
+# Output image dimensions (pixels)
+IMAGE_WIDTH = 400
+IMAGE_HEIGHT = 475
+
+# Normalised coordinate range displayed on the board.
+# The house centre is at (0, 0); y-positive is toward the hack (downward).
+X_MIN, X_MAX = -1.6, 1.6   # width  = 3.2 normalised units
+Y_MIN, Y_MAX = -0.7, 2.8   # height = 3.5 normalised units
+
+# House ring radii (normalised: 12-foot ring = 1.0)
+TWELVE_FOOT_RADIUS = 1.0
+EIGHT_FOOT_RADIUS = 2.0 / 3.0   # ≈ 0.667
+FOUR_FOOT_RADIUS = 1.0 / 3.0    # ≈ 0.333
+BUTTON_RADIUS = 0.5 / 6.0       # ≈ 0.083
+
+# Stone radius in normalised coordinates (a real stone is ~11.25 in diameter,
+# the 12-foot ring is 12 ft = 144 in, so stone radius ≈ 5.625 / 72 ≈ 0.078)
+STONE_RADIUS = 0.078
+
+# Colours
+COLOUR_BACKGROUND = (255, 255, 255)
+COLOUR_RING_12 = (170, 170, 230)   # blue / lilac
+COLOUR_RING_8 = (255, 255, 255)    # white
+COLOUR_RING_4 = (230, 160, 160)    # light red / pink
+COLOUR_BUTTON = (255, 255, 255)    # white
+COLOUR_RING_OUTLINE = (100, 100, 100)
+COLOUR_LINE = (180, 180, 180)      # centre / tee lines
+COLOUR_RED_STONE = (220, 40, 40)
+COLOUR_RED_OUTLINE = (160, 20, 20)
+COLOUR_YELLOW_STONE = (240, 200, 60)
+COLOUR_YELLOW_OUTLINE = (180, 150, 30)
+
+MAX_STONES_PER_TEAM = 8
+
+
+# ---------------------------------------------------------------------------
+# Coordinate mapping
+# ---------------------------------------------------------------------------
+
+def _norm_to_pixel(nx, ny):
+    """Convert normalised board coordinates to pixel coordinates."""
+    px = (nx - X_MIN) / (X_MAX - X_MIN) * IMAGE_WIDTH
+    py = (ny - Y_MIN) / (Y_MAX - Y_MIN) * IMAGE_HEIGHT
+    return px, py
+
+
+def _norm_radius_to_pixels(r):
+    """Convert a normalised radius to pixel radius (using x-axis scale)."""
+    return r / (X_MAX - X_MIN) * IMAGE_WIDTH
+
+
+# ---------------------------------------------------------------------------
+# Drawing helpers
+# ---------------------------------------------------------------------------
+
+def _draw_ring(draw, cx, cy, radius, fill, outline):
+    """Draw a filled circle centred at pixel (cx, cy)."""
+    r = _norm_radius_to_pixels(radius)
+    draw.ellipse(
+        [cx - r, cy - r, cx + r, cy + r],
+        fill=fill,
+        outline=outline,
+        width=1,
+    )
+
+
+def _draw_stone(draw, nx, ny, fill, outline):
+    """Draw a stone at normalised position (nx, ny)."""
+    px, py = _norm_to_pixel(nx, ny)
+    r = _norm_radius_to_pixels(STONE_RADIUS)
+    draw.ellipse(
+        [px - r, py - r, px + r, py + r],
+        fill=fill,
+        outline=outline,
+        width=1,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Stone extraction from shot data dict
+# ---------------------------------------------------------------------------
+
+def _extract_stones(shot_data, team_num):
+    """Return list of (x, y) tuples for stones belonging to *team_num* (1 or 2).
+
+    Empty/missing positions are skipped.
+    """
+    stones = []
+    prefix = f"team{team_num}_stone"
+    for i in range(1, MAX_STONES_PER_TEAM + 1):
+        x_key = f"{prefix}{i}_x"
+        y_key = f"{prefix}{i}_y"
+        x_val = shot_data.get(x_key, "")
+        y_val = shot_data.get(y_key, "")
+        if x_val != "" and y_val != "":
+            try:
+                stones.append((float(x_val), float(y_val)))
+            except (ValueError, TypeError):
+                continue
+    return stones
+
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
+
+def generate_board_image(shot_data, image_width=IMAGE_WIDTH,
+                         image_height=IMAGE_HEIGHT):
+    """Generate a curling board image for a single shot.
+
+    Parameters
+    ----------
+    shot_data : dict
+        A row from ``shot_locations.csv`` containing stone position columns
+        (``team1_stone1_x``, ``team1_stone1_y``, …, ``team2_stone8_y``).
+    image_width : int, optional
+        Width of the output image in pixels (default 400).
+    image_height : int, optional
+        Height of the output image in pixels (default 475).
+
+    Returns
+    -------
+    PIL.Image.Image
+        The rendered board image.
+    """
+    img = Image.new("RGB", (image_width, image_height), COLOUR_BACKGROUND)
+    draw = ImageDraw.Draw(img)
+
+    # House centre in pixel coordinates
+    hx, hy = _norm_to_pixel(0, 0)
+
+    # --- Centre line (vertical, full height) --------------------------------
+    cx_px, _ = _norm_to_pixel(0, Y_MIN)
+    _, y_top = _norm_to_pixel(0, Y_MIN)
+    _, y_bot = _norm_to_pixel(0, Y_MAX)
+    draw.line([(cx_px, y_top), (cx_px, y_bot)], fill=COLOUR_LINE, width=1)
+
+    # --- Tee line (horizontal, through house centre) ------------------------
+    x_left, _ = _norm_to_pixel(X_MIN, 0)
+    x_right, _ = _norm_to_pixel(X_MAX, 0)
+    draw.line([(x_left, hy), (x_right, hy)], fill=COLOUR_LINE, width=1)
+
+    # --- House rings (draw from largest to smallest) ------------------------
+    _draw_ring(draw, hx, hy, TWELVE_FOOT_RADIUS, COLOUR_RING_12,
+               COLOUR_RING_OUTLINE)
+    _draw_ring(draw, hx, hy, EIGHT_FOOT_RADIUS, COLOUR_RING_8,
+               COLOUR_RING_OUTLINE)
+    _draw_ring(draw, hx, hy, FOUR_FOOT_RADIUS, COLOUR_RING_4,
+               COLOUR_RING_OUTLINE)
+    _draw_ring(draw, hx, hy, BUTTON_RADIUS, COLOUR_BUTTON,
+               COLOUR_RING_OUTLINE)
+
+    # --- Stones -------------------------------------------------------------
+    team1_stones = _extract_stones(shot_data, 1)
+    team2_stones = _extract_stones(shot_data, 2)
+
+    for sx, sy in team1_stones:
+        _draw_stone(draw, sx, sy, COLOUR_RED_STONE, COLOUR_RED_OUTLINE)
+    for sx, sy in team2_stones:
+        _draw_stone(draw, sx, sy, COLOUR_YELLOW_STONE, COLOUR_YELLOW_OUTLINE)
+
+    return img
+
+
+def generate_board_image_from_csv(csv_path, event_id, match_id, end_number,
+                                  shot_number):
+    """Look up a specific shot in *csv_path* and generate a board image.
+
+    Parameters
+    ----------
+    csv_path : str
+        Path to ``shot_locations.csv``.
+    event_id, match_id, end_number, shot_number : int or str
+        Identifiers for the shot to render.
+
+    Returns
+    -------
+    PIL.Image.Image
+        The rendered board image.
+
+    Raises
+    ------
+    ValueError
+        If no matching row is found.
+    """
+    event_id = str(event_id)
+    match_id = str(match_id)
+    end_number = str(end_number)
+    shot_number = str(shot_number)
+
+    with open(csv_path, newline="", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            if (row["event_id"] == event_id
+                    and row["match_id"] == match_id
+                    and row["end_number"] == end_number
+                    and row["shot_number"] == shot_number):
+                return generate_board_image(row)
+
+    raise ValueError(
+        f"No shot found for event_id={event_id}, match_id={match_id}, "
+        f"end_number={end_number}, shot_number={shot_number}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Generate a curling board image from shot location data."
+    )
+    parser.add_argument(
+        "--csv", default="output/shot_locations.csv",
+        help="Path to shot_locations.csv (default: output/shot_locations.csv)",
+    )
+    parser.add_argument("--event", required=True, help="Event ID")
+    parser.add_argument("--match", required=True, help="Match ID")
+    parser.add_argument("--end", required=True, help="End number")
+    parser.add_argument("--shot", required=True, help="Shot number")
+    parser.add_argument(
+        "-o", "--output", default="board.png",
+        help="Output image path (default: board.png)",
+    )
+    args = parser.parse_args()
+
+    img = generate_board_image_from_csv(
+        args.csv, args.event, args.match, args.end, args.shot,
+    )
+    img.save(args.output)
+    print(f"Board image saved to {args.output}")
+
+
+if __name__ == "__main__":
+    main()
