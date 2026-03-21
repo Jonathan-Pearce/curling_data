@@ -212,3 +212,4 @@ __marimo__/
 # Data folder (PDFs are fetched from URLs at runtime)
 data/
 
+output/shot_locations.csv
