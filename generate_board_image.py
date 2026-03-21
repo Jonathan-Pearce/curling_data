@@ -19,14 +19,37 @@ from PIL import Image, ImageDraw
 # Board rendering constants
 # ---------------------------------------------------------------------------
 
-# Output image dimensions (pixels)
+# Output image dimensions (pixels).
+# Height is derived from the Y range to preserve physical aspect ratio.
 IMAGE_WIDTH = 400
-IMAGE_HEIGHT = 475
 
 # Normalised coordinate range displayed on the board.
-# The house centre is at (0, 0); y-positive is toward the hack (downward).
-X_MIN, X_MAX = -1.6, 1.6   # width  = 3.2 normalised units
-Y_MIN, Y_MAX = -0.7, 2.8   # height = 3.5 normalised units
+# The house centre is at (0, 0); y-positive is toward the hog line / delivery
+# end (bottom of image), y-negative is toward the back line / hack (top of
+# image).
+# In real units: 1 normalised unit = HOUSE_RADIUS (89 px at 300 DPI) = 6 feet
+# (the radius of the 12-foot ring).
+#
+# These bounds are derived directly from extract_shot_data.py constants so
+# the generated image has the same proportions as the original PDF crops:
+#
+#   X extent:  ±HOUSE_CX / HOUSE_RADIUS  = ±161/89  ≈ ±1.81
+#   Y top:     -HOUSE_CY / HOUSE_RADIUS  = -171/89  ≈ -1.92  (behind house)
+#   Y bottom:  derived from STONE_Y_MAX_FRAC (0.82) = cutoff where hog-line
+#              stones sit; crop_h ≈ (171 + 3.5×89)/0.82 ≈ 588 px,
+#              so Y_MAX = (588−171)/89 ≈ 4.68  (past hog line)
+#
+# Physical reference lines (normalised):
+#   Back line = -1.0  ( 6 ft behind tee:  1 × 6 ft)
+#   Hog line  = +3.5  (21 ft in front of tee: 3.5 × 6 ft)
+X_MIN, X_MAX = -1.81, 1.81   # width  ≈ 3.62 normalised units
+Y_MIN, Y_MAX = -1.92, 4.68   # height ≈ 6.60 normalised units
+
+IMAGE_HEIGHT = round(IMAGE_WIDTH * (Y_MAX - Y_MIN) / (X_MAX - X_MIN))  # ≈ 729
+
+# Physical reference lines
+BACK_LINE_Y = -1.0   # 6 ft behind tee line  (1 normalised unit = 6 ft)
+HOG_LINE_Y = 3.5     # 21 ft in front of tee line
 
 # House ring radii (normalised: 12-foot ring = 1.0)
 TWELVE_FOOT_RADIUS = 1.0
@@ -46,6 +69,8 @@ COLOUR_RING_4 = (230, 160, 160)    # light red / pink
 COLOUR_BUTTON = (255, 255, 255)    # white
 COLOUR_RING_OUTLINE = (100, 100, 100)
 COLOUR_LINE = (180, 180, 180)      # centre / tee lines
+COLOUR_HOG_LINE = (200, 80, 80)    # hog line
+COLOUR_BACK_LINE = (140, 140, 200) # back line
 COLOUR_RED_STONE = (220, 40, 40)
 COLOUR_RED_OUTLINE = (160, 20, 20)
 COLOUR_YELLOW_STONE = (240, 200, 60)
@@ -59,7 +84,13 @@ MAX_STONES_PER_TEAM = 8
 # ---------------------------------------------------------------------------
 
 def _norm_to_pixel(nx, ny):
-    """Convert normalised board coordinates to pixel coordinates."""
+    """Convert normalised board coordinates to pixel coordinates.
+
+    y increases downward in pixel space: the back line (small negative y)
+    maps near the top of the image and the hog line (large positive y) maps
+    near the bottom, matching the standard top-down view with the button
+    near the top of the image.
+    """
     px = (nx - X_MIN) / (X_MAX - X_MIN) * IMAGE_WIDTH
     py = (ny - Y_MIN) / (Y_MAX - Y_MIN) * IMAGE_HEIGHT
     return px, py
@@ -137,7 +168,7 @@ def generate_board_image(shot_data, image_width=IMAGE_WIDTH,
     image_width : int, optional
         Width of the output image in pixels (default 400).
     image_height : int, optional
-        Height of the output image in pixels (default 475).
+        Height of the output image in pixels (default IMAGE_HEIGHT ≈ 613).
 
     Returns
     -------
@@ -149,6 +180,20 @@ def generate_board_image(shot_data, image_width=IMAGE_WIDTH,
 
     # House centre in pixel coordinates
     hx, hy = _norm_to_pixel(0, 0)
+
+    # --- Hog line -----------------------------------------------------------
+    x_left, _ = _norm_to_pixel(X_MIN, HOG_LINE_Y)
+    x_right, _ = _norm_to_pixel(X_MAX, HOG_LINE_Y)
+    _, hog_py = _norm_to_pixel(0, HOG_LINE_Y)
+    draw.line([(x_left, hog_py), (x_right, hog_py)],
+              fill=COLOUR_HOG_LINE, width=2)
+
+    # --- Back line ----------------------------------------------------------
+    x_left, _ = _norm_to_pixel(X_MIN, BACK_LINE_Y)
+    x_right, _ = _norm_to_pixel(X_MAX, BACK_LINE_Y)
+    _, back_py = _norm_to_pixel(0, BACK_LINE_Y)
+    draw.line([(x_left, back_py), (x_right, back_py)],
+              fill=COLOUR_BACK_LINE, width=2)
 
     # --- Centre line (vertical, full height) --------------------------------
     cx_px, _ = _norm_to_pixel(0, Y_MIN)
@@ -174,6 +219,18 @@ def generate_board_image(shot_data, image_width=IMAGE_WIDTH,
     # --- Stones -------------------------------------------------------------
     team1_stones = _extract_stones(shot_data, 1)
     team2_stones = _extract_stones(shot_data, 2)
+
+    print(f"[debug] event_id={shot_data.get('event_id')}  match_id={shot_data.get('match_id')}  "
+          f"end={shot_data.get('end_number')}  shot={shot_data.get('shot_number')}  "
+          f"team={shot_data.get('team_code')}  player={shot_data.get('player_name')}")
+    print(f"[debug] shot_type={shot_data.get('shot_type')}  turn={shot_data.get('turn')}  "
+          f"accuracy={shot_data.get('accuracy')}")
+    print(f"[debug] team1 stones ({len(team1_stones)}):")
+    for i, (sx, sy) in enumerate(team1_stones, 1):
+        print(f"[debug]   stone {i}: x={sx:+.3f}  y={sy:+.3f}")
+    print(f"[debug] team2 stones ({len(team2_stones)}):")
+    for i, (sx, sy) in enumerate(team2_stones, 1):
+        print(f"[debug]   stone {i}: x={sx:+.3f}  y={sy:+.3f}")
 
     for sx, sy in team1_stones:
         _draw_stone(draw, sx, sy, COLOUR_RED_STONE, COLOUR_RED_OUTLINE)

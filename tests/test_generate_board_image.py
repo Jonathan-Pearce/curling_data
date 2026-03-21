@@ -36,11 +36,13 @@ class TestNormToPixel:
         assert abs(py - expected_py) < 1
 
     def test_top_left_corner(self):
+        # Y_MIN (back-line end) maps to the top-left of the image.
         px, py = _norm_to_pixel(X_MIN, Y_MIN)
         assert abs(px) < 1
         assert abs(py) < 1
 
     def test_bottom_right_corner(self):
+        # Y_MAX (hog-line end) maps to the bottom-right of the image.
         px, py = _norm_to_pixel(X_MAX, Y_MAX)
         assert abs(px - IMAGE_WIDTH) < 1
         assert abs(py - IMAGE_HEIGHT) < 1
