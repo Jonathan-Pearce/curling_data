@@ -27,25 +27,23 @@ IMAGE_WIDTH = 400
 # The house centre is at (0, 0); y-positive is toward the hog line / delivery
 # end (bottom of image), y-negative is toward the back line / hack (top of
 # image).
-# In real units: 1 normalised unit = HOUSE_RADIUS (89 px at 300 DPI) = 6 feet
+# In real units: 1 normalised unit = HOUSE_RADIUS px at 300 DPI = 6 feet
 # (the radius of the 12-foot ring).
 #
-# These bounds are derived directly from extract_shot_data.py constants so
-# the generated image has the same proportions as the original PDF crops:
+# Derived from extract_shot_data.py geometry constants
+# (HOUSE_CX=161, HOUSE_CY=171, HOUSE_RADIUS=112, STONE_Y_MAX_FRAC=0.93):
 #
-#   X extent:  ±HOUSE_CX / HOUSE_RADIUS  = ±161/89  ≈ ±1.81
-#   Y top:     -HOUSE_CY / HOUSE_RADIUS  = -171/89  ≈ -1.92  (behind house)
-#   Y bottom:  derived from STONE_Y_MAX_FRAC (0.82) = cutoff where hog-line
-#              stones sit; crop_h ≈ (171 + 3.5×89)/0.82 ≈ 588 px,
-#              so Y_MAX = (588−171)/89 ≈ 4.68  (past hog line)
+#   X extent:  ±HOUSE_CX / HOUSE_RADIUS = ±161/112 ≈ ±1.44
+#   Y_MIN:     -HOUSE_CY / HOUSE_RADIUS  = -171/112 ≈ -1.53  (top of PDF crop)
+#   Y_MAX:     4.60 provides visual buffer beyond the hog line for guards
 #
 # Physical reference lines (normalised):
 #   Back line = -1.0  ( 6 ft behind tee:  1 × 6 ft)
 #   Hog line  = +3.5  (21 ft in front of tee: 3.5 × 6 ft)
-X_MIN, X_MAX = -1.81, 1.81   # width  ≈ 3.62 normalised units
-Y_MIN, Y_MAX = -1.92, 4.68   # height ≈ 6.60 normalised units
+X_MIN, X_MAX = -1.44, 1.44   # width  ≈ 2.88 normalised units
+Y_MIN, Y_MAX = -1.53, 4.60   # height ≈ 6.13 normalised units
 
-IMAGE_HEIGHT = round(IMAGE_WIDTH * (Y_MAX - Y_MIN) / (X_MAX - X_MIN))  # ≈ 729
+IMAGE_HEIGHT = round(IMAGE_WIDTH * (Y_MAX - Y_MIN) / (X_MAX - X_MIN))  # ≈ 853
 
 # Physical reference lines
 BACK_LINE_Y = -1.0   # 6 ft behind tee line  (1 normalised unit = 6 ft)
@@ -227,10 +225,22 @@ def generate_board_image(shot_data, image_width=IMAGE_WIDTH,
           f"accuracy={shot_data.get('accuracy')}")
     print(f"[debug] team1 stones ({len(team1_stones)}):")
     for i, (sx, sy) in enumerate(team1_stones, 1):
-        print(f"[debug]   stone {i}: x={sx:+.3f}  y={sy:+.3f}")
+        dist = math.sqrt(sx * sx + sy * sy)
+        ring = ("button" if dist < BUTTON_RADIUS else
+                "4-ft"   if dist < FOUR_FOOT_RADIUS else
+                "8-ft"   if dist < EIGHT_FOOT_RADIUS else
+                "12-ft"  if dist < TWELVE_FOOT_RADIUS else
+                "outside house")
+        print(f"[debug]   stone {i}: x={sx:+.3f}  y={sy:+.3f}  dist={dist:.3f}  ({ring})")
     print(f"[debug] team2 stones ({len(team2_stones)}):")
     for i, (sx, sy) in enumerate(team2_stones, 1):
-        print(f"[debug]   stone {i}: x={sx:+.3f}  y={sy:+.3f}")
+        dist = math.sqrt(sx * sx + sy * sy)
+        ring = ("button" if dist < BUTTON_RADIUS else
+                "4-ft"   if dist < FOUR_FOOT_RADIUS else
+                "8-ft"   if dist < EIGHT_FOOT_RADIUS else
+                "12-ft"  if dist < TWELVE_FOOT_RADIUS else
+                "outside house")
+        print(f"[debug]   stone {i}: x={sx:+.3f}  y={sy:+.3f}  dist={dist:.3f}  ({ring})")
 
     for sx, sy in team1_stones:
         _draw_stone(draw, sx, sy, COLOUR_RED_STONE, COLOUR_RED_OUTLINE)
