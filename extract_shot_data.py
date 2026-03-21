@@ -53,10 +53,12 @@ RENDER_DPI = 300
 PDF_POINTS_PER_INCH = 72
 SCALE = RENDER_DPI / PDF_POINTS_PER_INCH
 
-# House geometry at 300 DPI (empirically calibrated from the PDF)
+# House geometry at 300 DPI (calibrated by measuring the 12-foot ring radius
+# in the rendered PDF crop; original empirical value was 89, corrected to 112
+# after visual comparison against generate_board_image.py output).
 HOUSE_CX = 161  # pixels – centre-x of the house in each shot crop
 HOUSE_CY = 171  # pixels – centre-y
-HOUSE_RADIUS = 89  # pixels – radius of the 12-foot ring
+HOUSE_RADIUS = 112  # pixels – radius of the 12-foot ring
 
 # Stone detection thresholds (HSV)
 RED_LOWER_1 = np.array([0, 100, 80])
@@ -69,10 +71,22 @@ YELLOW_UPPER = np.array([35, 255, 255])
 STONE_MIN_AREA = 80
 STONE_MAX_AREA = 600
 
+# HSV colour range for the 12-foot ring (blue/lilac) used to detect the
+# house centre position and image orientation.  The ring colour in the PDF
+# is approximately RGB (170, 170, 230) → HSV H≈120, S≈66, V≈230.
+HOUSE_RING_LOWER = np.array([100, 25, 140])  # HSV lower bound
+HOUSE_RING_UPPER = np.array([140, 160, 255])  # HSV upper bound
+HOUSE_RING_MIN_AREA = 1500  # minimum blue pixels required to trust detection
+
 # Vertical pixel margins for stone detection (exclude score-indicator dots
 # at the very top and shot-label text at the bottom of each crop).
+# With HOUSE_RADIUS=112 and HOUSE_CY=171, the hog line sits at pixel
+# 171 + 3.5×112 = 563.  The crop height ≈ 686 px, so the old value of
+# 0.82 placed the cutoff exactly at the hog line, silently dropping any
+# stone close to it.  0.93 extends detection to ~y=4.2 (25 ft) while
+# still clearing the text label at the very bottom of the crop.
 STONE_Y_MIN_PX = 15
-STONE_Y_MAX_FRAC = 0.82  # fraction of crop height
+STONE_Y_MAX_FRAC = 0.93  # fraction of crop height
 
 MAX_STONES_PER_TEAM = 8
 
@@ -333,16 +347,60 @@ def _extract_shot_metadata_from_words(words, shot_images):
 # ---------------------------------------------------------------------------
 
 
+def _detect_house_center(crop_bgr):
+    """Detect the house centre position in a shot crop using the 12-foot ring.
+
+    The 12-foot ring has a distinctive blue/lilac colour that is isolated via
+    HSV thresholding.  The centroid of all matching pixels gives the house
+    centre.  Comparing that centroid to the vertical midpoint of the crop
+    reveals the orientation: ``'top'`` when the house is in the upper half
+    (guard zone below), ``'bottom'`` when the house is in the lower half
+    (guard zone above).
+
+    Returns
+    -------
+    tuple (cx, cy, orientation)
+        ``cx``, ``cy`` are the detected house centre in pixels.
+        ``orientation`` is ``'top'`` or ``'bottom'``.
+        Falls back to ``(HOUSE_CX, HOUSE_CY, 'top')`` when detection fails.
+    """
+    h, w = crop_bgr.shape[:2]
+    hsv = cv2.cvtColor(crop_bgr, cv2.COLOR_BGR2HSV)
+
+    ring_mask = cv2.inRange(hsv, HOUSE_RING_LOWER, HOUSE_RING_UPPER)
+    M = cv2.moments(ring_mask)
+
+    if M["m00"] < HOUSE_RING_MIN_AREA:
+        # Detection failed – fall back to calibrated constants
+        return HOUSE_CX, HOUSE_CY, "top"
+
+    cx = int(M["m10"] / M["m00"])
+    cy = int(M["m01"] / M["m00"])
+    orientation = "top" if cy <= h / 2 else "bottom"
+    return cx, cy, orientation
+
+
 def _detect_stones_in_crop(crop_bgr):
     """Detect red and yellow stones in a single shot crop image.
 
-    Returns (red_stones, yellow_stones) where each is a list of
-    (norm_x, norm_y, distance, angle_deg) tuples sorted ascending by
-    distance from the house centre.  Coordinates are normalised so that
-    the 12-foot ring has radius = 1.0.
+    The house centre is detected dynamically via :func:`_detect_house_center`
+    so that both orientations (house at top or bottom) are handled correctly.
+    When the house is at the bottom of the crop the y-axis is flipped so that
+    positive y always points toward the hog line / delivery end.
+
+    Returns
+    -------
+    tuple (red_stones, yellow_stones, orientation)
+        Each stone list contains ``(norm_x, norm_y, distance, angle_deg)``
+        tuples sorted ascending by distance from the house centre.
+        ``orientation`` is the string returned by :func:`_detect_house_center`
+        (``'top'`` or ``'bottom'``).
     """
     hsv = cv2.cvtColor(crop_bgr, cv2.COLOR_BGR2HSV)
     h, w = crop_bgr.shape[:2]
+
+    # Detect house centre and orientation for this crop
+    house_cx, house_cy, orientation = _detect_house_center(crop_bgr)
 
     # Restrict detection to the playing-field portion of the crop
     y_max = int(h * STONE_Y_MAX_FRAC)
@@ -366,15 +424,21 @@ def _detect_stones_in_crop(crop_bgr):
                 if M["m00"] > 0:
                     sx = M["m10"] / M["m00"]
                     sy = M["m01"] / M["m00"]
-                    nx = (sx - HOUSE_CX) / HOUSE_RADIUS
-                    ny = (sy - HOUSE_CY) / HOUSE_RADIUS
+                    # When the house is at the bottom the view is rotated 180°,
+                    # so both axes are mirrored relative to the standard orientation.
+                    if orientation == "top":
+                        nx = (sx - house_cx) / HOUSE_RADIUS
+                        ny = (sy - house_cy) / HOUSE_RADIUS
+                    else:
+                        nx = (house_cx - sx) / HOUSE_RADIUS
+                        ny = (house_cy - sy) / HOUSE_RADIUS
                     dist = math.sqrt(nx * nx + ny * ny)
                     angle = math.degrees(math.atan2(ny, nx))
                     stones.append((nx, ny, dist, angle))
         stones.sort(key=lambda s: s[2])
         return stones
 
-    return _extract(mask_red), _extract(mask_yellow)
+    return _extract(mask_red), _extract(mask_yellow), orientation
 
 
 def render_page_image(page):
@@ -563,7 +627,7 @@ def extract_event(pdf_path, event_id):
                 meta = shot_metas[shot_idx]
                 crop = crop_shot_image(page_bgr, shot_images[shot_idx])
 
-                red_stones, yellow_stones = _detect_stones_in_crop(crop)
+                red_stones, yellow_stones, house_orientation = _detect_stones_in_crop(crop)
 
                 # Map red/yellow to team1/team2 using the team color indicator
                 # images on the page.  In the PDF the first small indicator
@@ -593,6 +657,7 @@ def extract_event(pdf_path, event_id):
                     "shot_type": meta["shot_type"],
                     "turn": meta["turn"],
                     "accuracy": meta["accuracy"],
+                    "house_orientation": house_orientation,
                     "team1_stones_in_play": len(team1_stones),
                     "team2_stones_in_play": len(team2_stones),
                 }
@@ -789,6 +854,7 @@ def _write_shots_csv(path, rows):
         "event_id", "match_id", "end_number", "shot_number",
         "team_code", "player_id", "player_name",
         "shot_type", "turn", "accuracy",
+        "house_orientation",
         "team1_stones_in_play", "team2_stones_in_play",
     ]
     stone_fields = []
