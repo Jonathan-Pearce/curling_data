@@ -33,6 +33,7 @@ import urllib.request
 
 import cv2
 import numpy as np
+import pandas as pd
 import pdfplumber
 
 # ---------------------------------------------------------------------------
@@ -863,7 +864,11 @@ def _write_shots_csv(path, rows):
             prefix = f"team{ti}_stone{si}"
             stone_fields += [f"{prefix}_x", f"{prefix}_y",
                              f"{prefix}_dist", f"{prefix}_angle"]
-    _write_csv(path, base_fields + stone_fields, rows)
+    all_fields = base_fields + stone_fields
+    _write_csv(path, all_fields, rows)
+    parquet_path = os.path.splitext(path)[0] + ".parquet"
+    df = pd.DataFrame(rows, columns=all_fields)
+    df.to_parquet(parquet_path, index=False)
 
 
 def _write_csv(path, fieldnames, rows):
