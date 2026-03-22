@@ -214,3 +214,6 @@ data/
 
 output/shot_locations.csv
 output_old/v3/shot_locations.csv
+
+# ML model checkpoints
+ml/checkpoints/
