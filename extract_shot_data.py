@@ -99,6 +99,13 @@ STONE_Y_MAX_FRAC = 0.93  # fraction of crop height
 
 MAX_STONES_PER_TEAM = 8
 
+# Maximum Euclidean distance (normalised to house-radius units) within which
+# two stone detections — in consecutive shot diagrams of the same end — are
+# considered the same physical stone.  Rendering noise produces position
+# jitter of ±0.01–0.03 units; genuine displacement by a hit travels >> 0.10
+# units, so this threshold cleanly separates noise from true movement.
+STONE_TRACK_MAX_DIST = 0.10
+
 # ---------------------------------------------------------------------------
 # URL / PDF helpers
 # ---------------------------------------------------------------------------
@@ -471,6 +478,78 @@ def _detect_stones_in_crop(crop_bgr):
     return _extract(mask_red), _extract(mask_yellow), orientation
 
 
+def _match_stones_to_state(prev_state, curr_stones, stone_id_counter):
+    """Match newly detected stones to the previous end state.
+
+    Uses a greedy nearest-neighbour assignment (sorted by ascending pair
+    distance) to propagate stable stone IDs across consecutive shot diagrams
+    within a single end.  Each physical stone keeps the same ID from the shot
+    it first appears until it leaves play.
+
+    Parameters
+    ----------
+    prev_state : list of (stone_id, px, py)
+        Tracked stones from the previous shot in this end.  Empty list for
+        the first shot (no prior state).
+    curr_stones : list of (nx, ny, dist, angle)
+        Raw detections from the current shot, sorted ascending by distance
+        from the house centre (the output of ``_detect_stones_in_crop``).
+    stone_id_counter : list of [int]
+        Single-element mutable list holding the next available stone ID
+        within the current end.  Modified in-place when new IDs are assigned.
+
+    Returns
+    -------
+    matched : list of (stone_id, nx, ny, dist, angle, prev_x, prev_y)
+        Each detected stone annotated with its stable ID and, when matched to
+        a previous stone, the coordinates it held at the previous shot.
+        ``prev_x`` / ``prev_y`` are ``None`` for stones newly placed this
+        shot (no match found within ``STONE_TRACK_MAX_DIST``).  The list is
+        sorted ascending by distance (preserving the distance-sorted column
+        layout).
+    new_state : list of (stone_id, px, py)
+        Updated tracking state to carry forward to the next shot.
+    """
+    # Build all candidate pairs (prev_index, curr_index, distance) that fall
+    # within the matching threshold, then sort by ascending distance so that
+    # the greedy pass always resolves the most-confident assignments first.
+    pairs = []
+    for pi, (sid, px, py) in enumerate(prev_state):
+        for ci, (nx, ny, _dist, _angle) in enumerate(curr_stones):
+            d = math.sqrt((nx - px) ** 2 + (ny - py) ** 2)
+            if d < STONE_TRACK_MAX_DIST:
+                pairs.append((d, pi, ci))
+    pairs.sort()
+
+    assignments = {}  # curr_index -> (stone_id, prev_x, prev_y)
+    used_prev = set()
+    used_curr = set()
+    for _d, pi, ci in pairs:
+        if pi in used_prev or ci in used_curr:
+            continue
+        sid, px, py = prev_state[pi]
+        assignments[ci] = (sid, px, py)
+        used_prev.add(pi)
+        used_curr.add(ci)
+
+    matched = []
+    new_state = []
+    for ci, (nx, ny, dist, angle) in enumerate(curr_stones):
+        if ci in assignments:
+            sid, prev_x, prev_y = assignments[ci]
+        else:
+            # Stone newly placed this shot — assign a fresh ID.
+            sid = stone_id_counter[0]
+            stone_id_counter[0] += 1
+            prev_x, prev_y = None, None
+        matched.append((sid, nx, ny, dist, angle, prev_x, prev_y))
+        new_state.append((sid, nx, ny))
+
+    # Keep distance-sorted order (dist is index 4 in the matched tuple).
+    matched.sort(key=lambda s: s[4])
+    return matched, new_state
+
+
 def render_page_image(page):
     """Render a PDF page to a numpy BGR array at RENDER_DPI."""
     pil_img = page.to_image(resolution=RENDER_DPI).original
@@ -680,6 +759,12 @@ def extract_event(pdf_path, event_id):
             # Render page and detect stones for each shot
             page_bgr = render_page_image(page)
 
+            # Sequential tracking state for this end (reset at the start of
+            # each end page).  Each entry is (stone_id, px, py).
+            track_state = {1: [], 2: []}
+            # Stone IDs are scoped to the current end; counter resets per end.
+            end_stone_id_counter = [1]
+
             for shot_idx in range(16):
                 shot_num = shot_idx + 1
                 meta = shot_metas[shot_idx]
@@ -692,8 +777,16 @@ def extract_event(pdf_path, event_id):
                 # (image index 3 in page.images, a 31×31 red dot) is team1
                 # and the second (image index 2, a 31×31 yellow dot) is team2.
                 # So team1 = red, team2 = yellow.
-                team1_stones = red_stones
-                team2_stones = yellow_stones
+
+                # Apply sequential tracking: match each team's detections to
+                # the previous shot's state to assign stable stone IDs and
+                # propagate prev_x / prev_y for unchanged stones.
+                tracked_t1, track_state[1] = _match_stones_to_state(
+                    track_state[1], red_stones, end_stone_id_counter
+                )
+                tracked_t2, track_state[2] = _match_stones_to_state(
+                    track_state[2], yellow_stones, end_stone_id_counter
+                )
 
                 # Register player
                 player_name = meta["player_name"]
@@ -716,25 +809,38 @@ def extract_event(pdf_path, event_id):
                     "turn": meta["turn"],
                     "accuracy": meta["accuracy"],
                     "house_orientation": house_orientation,
-                    "team1_stones_in_play": len(team1_stones),
-                    "team2_stones_in_play": len(team2_stones),
+                    "team1_stones_in_play": len(tracked_t1),
+                    "team2_stones_in_play": len(tracked_t2),
                 }
 
-                # Stone positions – up to 8 per team, sorted by distance
-                for ti, stones in enumerate([team1_stones, team2_stones], start=1):
+                # Stone positions – up to 8 per team, sorted by distance.
+                # Each slot additionally carries a stable stone_id (consistent
+                # within the end) and the previous-shot coordinates so that
+                # frame-to-frame displacement can be read directly from the row.
+                for ti, tracked in enumerate([tracked_t1, tracked_t2], start=1):
                     prefix = f"team{ti}"
                     for si in range(MAX_STONES_PER_TEAM):
-                        if si < len(stones):
-                            nx, ny, dist, angle = stones[si]
+                        if si < len(tracked):
+                            sid, nx, ny, dist, angle, prev_x, prev_y = tracked[si]
                             row[f"{prefix}_stone{si+1}_x"] = round(nx, 3)
                             row[f"{prefix}_stone{si+1}_y"] = round(ny, 3)
                             row[f"{prefix}_stone{si+1}_dist"] = round(dist, 3)
                             row[f"{prefix}_stone{si+1}_angle"] = round(angle, 1)
+                            row[f"{prefix}_stone{si+1}_id"] = sid
+                            row[f"{prefix}_stone{si+1}_prev_x"] = (
+                                round(prev_x, 3) if prev_x is not None else ""
+                            )
+                            row[f"{prefix}_stone{si+1}_prev_y"] = (
+                                round(prev_y, 3) if prev_y is not None else ""
+                            )
                         else:
                             row[f"{prefix}_stone{si+1}_x"] = ""
                             row[f"{prefix}_stone{si+1}_y"] = ""
                             row[f"{prefix}_stone{si+1}_dist"] = ""
                             row[f"{prefix}_stone{si+1}_angle"] = ""
+                            row[f"{prefix}_stone{si+1}_id"] = ""
+                            row[f"{prefix}_stone{si+1}_prev_x"] = ""
+                            row[f"{prefix}_stone{si+1}_prev_y"] = ""
 
                 shots_rows.append(row)
 
@@ -928,8 +1034,11 @@ def _write_shots_csv(path, rows):
     for ti in (1, 2):
         for si in range(1, MAX_STONES_PER_TEAM + 1):
             prefix = f"team{ti}_stone{si}"
-            stone_fields += [f"{prefix}_x", f"{prefix}_y",
-                             f"{prefix}_dist", f"{prefix}_angle"]
+            stone_fields += [
+                f"{prefix}_x", f"{prefix}_y",
+                f"{prefix}_dist", f"{prefix}_angle",
+                f"{prefix}_id", f"{prefix}_prev_x", f"{prefix}_prev_y",
+            ]
     all_fields = base_fields + stone_fields
     _write_csv(path, all_fields, rows)
     parquet_path = os.path.splitext(path)[0] + ".parquet"

@@ -24,6 +24,7 @@ confirm which documented changes are observable in the new `output/` data.
 | 6 | `has_time_data` column in `events.csv` | Column present, derived from ends data | ✅ Confirmed |
 | 7 | `turn = "Not considered"` for Through shots | Through shots have turn set | ✅ Code fix confirmed |
 | 8 | Ghost stone outlines recorded as active stones | Outline circles rejected by fill-ratio guard | ⚠️ Fix applied; full re-scrape required to clean existing parquet |
+| 9 | Stone positions lacked stable identity across shots within an end | Sequential matching assigns stable `stone_id` + `prev_x/prev_y` per stone | ✅ Code fix applied (2026-03-22); re-scrape required |
 
 ### Detailed findings
 
@@ -315,6 +316,63 @@ if colored_pixels / area < STONE_MIN_FILL_RATIO:
 **Threshold tuning guidance:** If re-scraping finds legitimate stones being dropped near the house edge, lower the threshold toward `0.35`. If yellow-outline ghosts still appear (yellow outlines tend to be thinner than red), raise it toward `0.55`.
 
 This fix requires a full re-scrape to take effect. The existing `shot_locations.parquet` contains ghost stone positions for any shot where a stone was displaced. The scale of the contamination was not quantified before the fix; it affects any shot row where `team1_stones_in_play + team2_stones_in_play` is higher than the true count.
+
+---
+
+### Issue 9 — Stone positions lacked stable identity across shots within an end
+
+**Status: ✅ Code fix applied (2026-03-22); re-scrape required to update parquet**
+
+#### Background
+
+Previously, stone columns (`team{N}_stone{M}_{x,y,dist,angle}`) were written by sorting
+all detected stones by distance from the house centre on every shot independently. A
+stone that did not move between shot N-1 and shot N could appear in a different column
+slot purely because another stone happened to land closer to the house. There was no
+persistent identity connecting the same physical stone across consecutive shot rows.
+
+This made it impossible to:
+- Determine which `stone_id` in frame N corresponds to which stone in frame N-1
+- Compute displacement vectors (where did this stone come from?)
+- Build temporal GNN architectures that require stable node identity across timesteps
+- Construct a reliable pre-shot board state $S_{t-1}$
+
+#### Fix
+
+A new function `_match_stones_to_state()` was added to `extract_shot_data.py`. Within
+each end, it maintains a tracking state (list of `(stone_id, x, y)`) that is carried
+forward from one shot to the next. After each shot's detections are obtained, a greedy
+nearest-neighbour assignment (sorted by ascending pair distance) matches current
+detections to the prior state. Any stone within `STONE_TRACK_MAX_DIST = 0.10`
+normalised units of its previous position is considered the same physical stone and
+retains its ID. Unmatched stones (newly placed or displaced beyond the threshold)
+receive a fresh ID from a per-end counter.
+
+Three new columns are added per stone slot in `shot_locations`:
+
+| Column | Notes |
+|---|---|
+| `team{N}_stone{M}_id` | Stable integer ID, consistent within the end. Resets each end. |
+| `team{N}_stone{M}_prev_x` | x position at the previous shot; `NULL` if newly placed this shot. |
+| `team{N}_stone{M}_prev_y` | y position at the previous shot; `NULL` if newly placed this shot. |
+
+Stone IDs are shared across both teams within an end so team1 and team2 IDs are always
+distinct. The `stone_id` counter resets to 1 at the start of each end.
+
+Shots with `shot_number = 1` always have `prev_x = NULL` for all stones — the first
+shot of an end has no prior state.
+
+#### Distance threshold tuning
+
+`STONE_TRACK_MAX_DIST = 0.10` (10% of the 12-foot ring radius) was chosen to be
+decisively above the expected rendering noise (±0.01–0.03 units) while being well
+below the minimum displacement from any realistic hit. Physical stone diameter is
+approximately 0.19 normalised units; two stones cannot occupy positions closer than
+this, so intra-team confusion is geometrically impossible within the noise band.
+
+If re-scraping reveals legitimate stationary stones being dropped (matched[0] → NULL),
+lower the threshold toward `0.07`. If fast-moving stones near the house edge are being
+mis-matched, raise it toward `0.13`.
 
 ---
 

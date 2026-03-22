@@ -16,6 +16,7 @@ from extract_shot_data import (
     _get_shot_images,
     _extract_shot_metadata_from_words,
     _detect_stones_in_crop,
+    _match_stones_to_state,
     group_pages_into_matches,
     extract_all,
     extract_event,
@@ -24,6 +25,7 @@ from extract_shot_data import (
     load_result_urls,
     DEFAULT_PDF_URLS,
     DEFAULT_MIN_YEAR,
+    STONE_TRACK_MAX_DIST,
 )
 
 PDF_URL = "https://curlit.com/PDF/ECC2025_ResultsBook_Men_A-Division.pdf"
@@ -289,6 +291,129 @@ class TestShotMetadataWords:
         shots = _extract_shot_metadata_from_words(words, imgs)
         assert shots[0]["shot_type"] == "Draw"
         assert shots[0]["turn"] == ""  # no turn token — stays empty
+
+
+class TestStoneTracking:
+    """Unit tests for _match_stones_to_state sequential stone tracking."""
+
+    def _raw(self, *coords):
+        """Build a list of raw stone tuples (nx, ny, dist, angle) from (nx, ny) pairs."""
+        result = []
+        for nx, ny in coords:
+            dist = math.sqrt(nx ** 2 + ny ** 2)
+            angle = math.degrees(math.atan2(ny, nx))
+            result.append((nx, ny, dist, angle))
+        return result
+
+    def test_empty_state_all_new_ids(self):
+        """With no previous state, every stone gets a fresh ID."""
+        curr = self._raw((0.1, 0.2), (0.3, 0.4))
+        counter = [1]
+        matched, new_state = _match_stones_to_state([], curr, counter)
+        assert len(matched) == 2
+        ids = [s[0] for s in matched]
+        assert ids == [1, 2]
+        assert counter[0] == 3  # consumed 2 IDs
+        # No previous position for newly placed stones
+        for sid, nx, ny, dist, angle, prev_x, prev_y in matched:
+            assert prev_x is None
+            assert prev_y is None
+
+    def test_same_positions_ids_propagated(self):
+        """Stones at identical positions between shots keep their IDs."""
+        prev_state = [(5, 0.1, 0.2), (6, 0.5, 0.5)]
+        curr = self._raw((0.1, 0.2), (0.5, 0.5))
+        counter = [10]
+        matched, new_state = _match_stones_to_state(prev_state, curr, counter)
+        matched_ids = {(round(s[1], 3), round(s[2], 3)): s[0] for s in matched}
+        assert matched_ids[(0.1, 0.2)] == 5
+        assert matched_ids[(0.5, 0.5)] == 6
+        # Counter not advanced — no new IDs needed
+        assert counter[0] == 10
+
+    def test_new_stone_added(self):
+        """When a new stone appears, existing stones keep IDs; new one gets next ID."""
+        prev_state = [(3, 0.1, 0.2)]
+        # Two stones now: old one plus a newly placed stone
+        curr = self._raw((0.1, 0.2), (0.8, 0.0))
+        counter = [7]
+        matched, new_state = _match_stones_to_state(prev_state, curr, counter)
+        assert len(matched) == 2
+        by_pos = {(round(s[1], 3), round(s[2], 3)): s for s in matched}
+        # Existing stone keeps ID 3; prev_x/prev_y populated
+        old = by_pos[(0.1, 0.2)]
+        assert old[0] == 3
+        assert old[5] == pytest.approx(0.1)
+        assert old[6] == pytest.approx(0.2)
+        # New stone gets ID 7
+        new = by_pos[(0.8, 0.0)]
+        assert new[0] == 7
+        assert new[5] is None
+        assert new[6] is None
+        assert counter[0] == 8
+
+    def test_stone_removed_absent_from_new_state(self):
+        """A stone that leaves play is simply absent from new_state."""
+        prev_state = [(1, 0.0, 0.0), (2, 0.5, 0.5)]
+        # Only one stone remains
+        curr = self._raw((0.5, 0.5),)
+        counter = [10]
+        matched, new_state = _match_stones_to_state(prev_state, curr, counter)
+        assert len(matched) == 1
+        assert matched[0][0] == 2  # stone 2 survived
+        assert len(new_state) == 1
+        # Counter unchanged — the remaining stone was matched
+        assert counter[0] == 10
+
+    def test_stone_beyond_threshold_treated_as_new(self):
+        """A stone that moves beyond STONE_TRACK_MAX_DIST is treated as removed +
+        a new stone placed, not as a continued stone."""
+        far = STONE_TRACK_MAX_DIST + 0.05
+        prev_state = [(1, 0.0, 0.0)]
+        curr = self._raw((far, 0.0),)  # displaced well past threshold
+        counter = [2]
+        matched, new_state = _match_stones_to_state(prev_state, curr, counter)
+        # Should not match: prev stone 1 is gone; current detection is new
+        assert matched[0][0] == 2   # new ID assigned
+        assert matched[0][5] is None  # no prev_x
+        assert counter[0] == 3
+
+    def test_stone_within_threshold_matched(self):
+        """A stone slightly shifted (noise) within the threshold is matched."""
+        shift = STONE_TRACK_MAX_DIST - 0.01
+        prev_state = [(4, 0.0, 0.0)]
+        curr = self._raw((shift, 0.0),)
+        counter = [9]
+        matched, _ = _match_stones_to_state(prev_state, curr, counter)
+        assert matched[0][0] == 4   # same ID
+        assert matched[0][5] == pytest.approx(0.0)  # prev_x
+        assert matched[0][6] == pytest.approx(0.0)  # prev_y
+        assert counter[0] == 9  # no new ID consumed
+
+    def test_new_state_carries_current_positions(self):
+        """new_state reflects the current (post-shot) stone positions."""
+        prev_state = [(1, 0.0, 0.0)]
+        curr = self._raw((0.01, 0.01),)  # tiny noise shift — still matched
+        counter = [2]
+        _, new_state = _match_stones_to_state(prev_state, curr, counter)
+        assert len(new_state) == 1
+        sid, px, py = new_state[0]
+        assert sid == 1
+        assert px == pytest.approx(0.01)
+        assert py == pytest.approx(0.01)
+
+    def test_counter_shared_across_teams(self):
+        """Passing the same counter to two teams gives non-overlapping IDs."""
+        counter = [1]
+        curr_t1 = self._raw((0.1, 0.0), (0.2, 0.0))
+        curr_t2 = self._raw((0.4, 0.0),)
+        matched_t1, _ = _match_stones_to_state([], curr_t1, counter)
+        matched_t2, _ = _match_stones_to_state([], curr_t2, counter)
+        ids_t1 = {s[0] for s in matched_t1}
+        ids_t2 = {s[0] for s in matched_t2}
+        assert ids_t1 == {1, 2}
+        assert ids_t2 == {3}
+        assert ids_t1.isdisjoint(ids_t2)
 
 
 # ---------------------------------------------------------------------------

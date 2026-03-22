@@ -50,12 +50,24 @@ Always read `shot_locations` from the **parquet** file, not any CSV. The CSV is 
 | `team1_stone{N}_y` | float/NULL | y position; positive = toward delivery end (hog line) |
 | `team1_stone{N}_dist` | float/NULL | Euclidean distance from house centre in house-radius units |
 | `team1_stone{N}_angle` | float/NULL | Angle in degrees (atan2) from house centre |
+| `team1_stone{N}_id` | int/NULL | Stable integer ID for this stone within its end. Consistent across all shot rows of the same end; resets at end 1. Use to correlate the same physical stone across shots. |
+| `team1_stone{N}_prev_x` | float/NULL | x position of this stone at the previous shot (NULL if stone was newly placed this shot). |
+| `team1_stone{N}_prev_y` | float/NULL | y position at previous shot (NULL if newly placed). |
 | `team2_stone{N}_*` | float/NULL | Same columns for team2 (N = 1…8) |
 
 Stones within each team are **sorted ascending by distance** from the house centre.
 NULL entries beyond `team{N}_stones_in_play` are empty cells, not zeroes.
 
 **Colour-to-team mapping**: team1 = red stones, team2 = yellow stones. This is hardcoded in the scraper; the mapping is consistent across all events in the current dataset.
+
+**Stone ID tracking:** `stone_id` values are assigned by a greedy nearest-neighbour matcher (`STONE_TRACK_MAX_DIST = 0.10` normalised units). A stone not matched to any previous stone (new placement or displacement beyond threshold) receives a fresh ID. IDs are scoped to a single end and shared across both teams, so team1 and team2 IDs within the same end are always distinct. **Shot 1 of every end** has `prev_x = NULL` for all stones (no prior state). Use `shot_number == 1` as the sentinel for the end boundary.
+
+The displacement vector for a stone that stayed in play is:
+```python
+dx = row["teamN_stoneM_x"] - row["teamN_stoneM_prev_x"]
+dy = row["teamN_stoneM_y"] - row["teamN_stoneM_prev_y"]
+```
+A stone with `prev_x = NULL` was newly placed or moved beyond the tracking threshold (treat as a new stone for GNN purposes).
 
 ---
 

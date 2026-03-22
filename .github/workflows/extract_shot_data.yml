@@ -1,7 +1,12 @@
 name: Extract Shot Data
 
 on:
-  workflow_dispatch:        # Allow manual runs from the Actions tab
+  workflow_dispatch:
+    inputs:
+      pdf_url:
+        description: "Single event PDF URL (leave blank to scrape all events)"
+        required: false
+        default: ""
 
 jobs:
   extract:
@@ -24,10 +29,16 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Scrape result URLs
+        if: ${{ github.event.inputs.pdf_url == '' }}
         run: python scrape_results.py --output-dir output
 
       - name: Extract shot data
-        run: python extract_shot_data.py --output-dir output
+        run: |
+          if [ -n "${{ github.event.inputs.pdf_url }}" ]; then
+            python extract_shot_data.py "${{ github.event.inputs.pdf_url }}" --output-dir output
+          else
+            python extract_shot_data.py --output-dir output
+          fi
 
       - name: Commit and push updated data files
         run: |
