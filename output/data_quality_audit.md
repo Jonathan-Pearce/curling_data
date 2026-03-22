@@ -23,6 +23,7 @@ confirm which documented changes are observable in the new `output/` data.
 | 5 | Corrupted `shot_type` guard in scraper | No stray-character suffixes in new data | ✅ Code fix confirmed |
 | 6 | `has_time_data` column in `events.csv` | Column present, derived from ends data | ✅ Confirmed |
 | 7 | `turn = "Not considered"` for Through shots | Through shots have turn set | ✅ Code fix confirmed |
+| 8 | Ghost stone outlines recorded as active stones | Outline circles rejected by fill-ratio guard | ⚠️ Fix applied; full re-scrape required to clean existing parquet |
 
 ### Detailed findings
 
@@ -268,6 +269,52 @@ All 7 NULL-turn shots are penalty-violation shots (`shot_type` starting with `"T
 **Root cause:** "Through" shots are penalty removals — the stone is declared invalid and cleared from play. The PDF simply omits the turn indicator (↺ / ↻ / `-`) for these shots because no valid delivery took place. The parser found no turn token and left `turn` blank.
 
 **Fix:** In `_extract_shot_metadata_from_words()`, a post-processing guard now sets `turn = "Not considered"` for any shot whose `shot_type` starts with `"Through"` and whose `turn` is still empty. The 7 rows in `shot_locations.csv` have been patched directly. `accuracy` values were unaffected (all were already set from the PDF).
+
+---
+
+### Issue 8 — Ghost stones (outline circles) incorrectly recorded as active stones
+
+**Status: ✅ Fixed (2026-03-22)**
+
+#### Background
+
+Each shot diagram in the PDF shows the board state **after** the shot was thrown. Two distinct visual markers are used:
+
+| Marker | Meaning |
+|---|---|
+| **Filled circle** (solid red or solid yellow) | Stone currently in play at that position |
+| **Outline circle** (ring only, no fill) | Stone that was previously at this position but was displaced by the current shot — a "ghost" marker |
+
+Ghost markers appear in three variants depending on the event's PDF template:
+- **Red ring outline** — used for displaced red (team 1) stones in all events
+- **Yellow ring outline** — used for displaced yellow (team 2) stones in some events
+- **Grey ring outline** — used for displaced yellow (team 2) stones in other events
+
+#### Root cause
+
+`_detect_stones_in_crop()` in `extract_shot_data.py` used `cv2.RETR_EXTERNAL` contour detection followed by an area filter (`STONE_MIN_AREA < area < STONE_MAX_AREA`). The area of the outer boundary of an outline ring is similar to that of a filled disc of the same size, so outline ghosts passed the area filter and were recorded as active stone positions. This was a **systematic** bug: every end containing a take-out or displaced stone had at least one spurious ghost stone position recorded.
+
+The grey-outline variant was immune by accident — grey has near-zero HSV saturation and both the red and yellow HSV masks require S ≥ 100, so grey rings never produced a contour to check.
+
+#### Fix
+
+A **fill-ratio guard** was added inside the `_extract()` closure in `_detect_stones_in_crop()`. After the area check passes, the number of actual coloured pixels within the contour's bounding rect is counted using `cv2.countNonZero()` and divided by the contour area:
+
+- **Filled stone**: coloured pixels ≈ contour area → ratio ≈ 1.0 → **accepted**
+- **Outline ring**: coloured pixels = thin ring only → ratio ≈ 0.2–0.4 → **rejected**
+
+The rejection threshold is `STONE_MIN_FILL_RATIO = 0.45`. Grey-outline ghosts continue to be rejected upstream by the HSV saturation filter as before.
+
+```python
+x, y, w_c, h_c = cv2.boundingRect(c)
+colored_pixels = cv2.countNonZero(mask[y:y + h_c, x:x + w_c])
+if colored_pixels / area < STONE_MIN_FILL_RATIO:
+    continue
+```
+
+**Threshold tuning guidance:** If re-scraping finds legitimate stones being dropped near the house edge, lower the threshold toward `0.35`. If yellow-outline ghosts still appear (yellow outlines tend to be thinner than red), raise it toward `0.55`.
+
+This fix requires a full re-scrape to take effect. The existing `shot_locations.parquet` contains ghost stone positions for any shot where a stone was displaced. The scale of the contamination was not quantified before the fix; it affects any shot row where `team1_stones_in_play + team2_stones_in_play` is higher than the true count.
 
 ---
 
