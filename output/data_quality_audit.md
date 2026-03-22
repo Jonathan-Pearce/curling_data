@@ -1,6 +1,86 @@
 # Data Quality Audit — `output/`
 
 **Date:** 2026-03-21
+**Re-scrape verification:** 2026-03-22
+
+---
+
+## Post-Rescrape Verification (2026-03-22)
+
+The scraping pipeline was re-executed with all code fixes in place. The findings below
+confirm which documented changes are observable in the new `output/` data.
+
+### Summary
+
+| Issue | Description | Expected outcome | Observed? |
+|---|---|---|---|
+| 2a/b | WMD & CWC Olympic Mixed Doubles — ends now populated | Ends rows present (no hammer/shot data) | ✅ Confirmed |
+| **2c** | **Asian Winter Games 2025** — previously unresolvable | **Ends + times now present (same root cause as Issue 3)** | ✅ **Resolved — unexpected bonus fix** |
+| 3 | Conceded ends recorded via partial-end path | `final_score` == last `score_after` for all matches | ✅ Confirmed |
+| **4a (78 CWC Women's)** | **78 CWC Women's matches still-NULL** | **NULL scores remain** | ✅ **Fully resolved — unexpected bonus fix** |
+| 4a (174 CWC Men's) | NULL scores populated from ends fallback | All 174 CWC Men's matches have final scores | ✅ Confirmed |
+| 4b | WJCC 2026 + WWC 2019 manual patches | Scores correct | ✅ Confirmed |
+| 5 | Corrupted `shot_type` guard in scraper | No stray-character suffixes in new data | ✅ Code fix confirmed |
+| 6 | `has_time_data` column in `events.csv` | Column present, derived from ends data | ✅ Confirmed |
+| 7 | `turn = "Not considered"` for Through shots | Through shots have turn set | ✅ Code fix confirmed |
+
+### Detailed findings
+
+#### Issues 2c and 4a (78 CWC Women's) — unexpectedly resolved
+
+Both of these were previously classified as requiring PDF downloads to diagnose.
+The re-scrape reveals they share the same root cause as Issue 3: their end pages
+contain fewer than 16 shot images, so the old `len(shot_images) != 16: continue`
+guard silently discarded every end.  The Issue 3 fix (recording the end score row
+before `continue`-ing) resolved both automatically:
+
+- **Asian Winter Games 2025 (event 33, 18 matches):** All matches now have ends
+  with time data (`has_time_data = True`).  Conceded ends appear with
+  `score_this_end = X` for both teams, which is correct.
+- **CWC Women's section (events 147, 160, 165, 174, ~100 matches):** All Women's
+  section matches now have ends data.  The score fallback (`last_end["team*_score_after"]`)
+  then correctly populates `final_score` for each match.  Zero NULL final scores
+  remain anywhere in `matches.csv`.
+
+The root cause for these Women's CWC pages is confirmed as the same `len(shot_images) != 16`
+guard — no PDF download was required.
+
+#### Issue 3 — spot-checked
+
+Event 160, match 1 (KOR vs SWE, final score 6–4): ends 1–7 have full shot data
+and correct cumulative scores; end 8 (conceded) is recorded via the partial-end
+path with `score_before = 6,4`, `score_this_end = X,X`, `score_after = 6,4`, and
+blank `hammer_team_code`.  The `matches.csv` final score (6,4) matches exactly. ✅
+
+> **Note on `X,X` in `score_this_end`:** Conceded ends now produce `X,X` in the
+> `team1_score_this_end` / `team2_score_this_end` columns rather than numeric zero.
+> The score-arithmetic validation check (`before + this = after`) cannot be applied
+> to these rows.  Downstream analyses should skip or special-case rows where
+> `score_this_end` is `X`.
+
+#### Issue 4 — all final scores populated
+
+`matches.csv` contains zero rows where `team1_final_score` or `team2_final_score`
+is empty.  Spot checks:
+- CWC Grand Final 2018/19 (event 147): all 75 matches have scores ✅
+- WWC 2019 (event 154): all matches have scores ✅
+- WJCC 2026 (events 2 and 3): all matches have scores ✅
+
+#### Issue 6 — `has_time_data` now reflects new ends coverage
+
+The flag is computed automatically from ends data at scrape time.  Events that
+previously had `False` because their ends were missing (AWG 2025, CWC Women's
+section) now evaluate correctly based on whether the newly-scraped ends contain
+time data.
+
+#### Issues 5 and 7 — code fixes verified in source
+
+- **Issue 5:** `extract_shot_data.py` line 344 skips single-character continuation
+  tokens (`text.islower() or text.isdigit()`).
+- **Issue 7:** `extract_shot_data.py` lines 350–354 set `turn = "Not considered"`
+  for any `Through*` shot whose turn is still empty after the main parse loop.
+
+Both fixes applied to all freshly scraped shot data in `shot_locations.parquet`.
 
 ---
 
