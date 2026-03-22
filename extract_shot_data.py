@@ -336,9 +336,22 @@ def _extract_shot_metadata_from_words(words, shot_images):
                 shot["turn"] = "Not considered"
             else:
                 if shot["shot_type"]:
-                    shot["shot_type"] += " " + text
+                    # Skip single lowercase letters and single digits that
+                    # bleed in from adjacent PDF table cells (e.g. "Raise f",
+                    # "Guard 4").  All legitimate multi-word continuation
+                    # tokens ("and", "Roll", "Time-out", "Measurement", …)
+                    # are longer than one character.
+                    if not (len(text) == 1 and (text.islower() or text.isdigit())):
+                        shot["shot_type"] += " " + text
                 else:
                     shot["shot_type"] = text
+
+    # Penalty "Through" shots (hog-line violation, FGZ violation, burned
+    # stone, etc.) are removed from play — the PDF has no turn indicator for
+    # them.  "Not considered" is the correct semantic value.
+    for shot in shots:
+        if not shot["turn"] and shot["shot_type"].startswith("Through"):
+            shot["turn"] = "Not considered"
 
     return shots
 
@@ -565,6 +578,14 @@ def extract_event(pdf_path, event_id):
         final_score_1 = total_scores.get("team1", "")
         final_score_2 = total_scores.get("team2", "")
 
+        # Fallback: if the score box didn't parse (e.g. CWC PDF format),
+        # derive final score from the last end's cumulative score_after.
+        if (not final_score_1 or not final_score_2) and last_end:
+            if not final_score_1:
+                final_score_1 = last_end["team1_score_after"]
+            if not final_score_2:
+                final_score_2 = last_end["team2_score_after"]
+
         matches_rows.append({
             "event_id": event_id,
             "match_id": match_id,
@@ -594,6 +615,26 @@ def extract_event(pdf_path, event_id):
 
             shot_images = _get_shot_images(page)
             if len(shot_images) != 16:
+                # Partial/conceded end: record the end score summary but skip
+                # shot-level processing (we can't reliably assign 16 stone
+                # positions without exactly 16 diagrams).  hammer_team_code is
+                # left blank because shot 16 wasn't thrown.
+                ends_rows.append({
+                    "event_id": event_id,
+                    "match_id": match_id,
+                    "end_number": end_number,
+                    "team1_code": end_info["team1_code"],
+                    "team2_code": end_info["team2_code"],
+                    "team1_score_before": end_info["team1_score_before"],
+                    "team2_score_before": end_info["team2_score_before"],
+                    "team1_score_this_end": end_info["team1_score_this_end"],
+                    "team2_score_this_end": end_info["team2_score_this_end"],
+                    "team1_score_after": end_info["team1_score_after"],
+                    "team2_score_after": end_info["team2_score_after"],
+                    "hammer_team_code": "",
+                    "team1_time_left": end_time_left.get("team1", ""),
+                    "team2_time_left": end_time_left.get("team2", ""),
+                })
                 continue
 
             # Extract shot metadata from text
@@ -783,6 +824,15 @@ def extract_all(pdf_paths, output_dir="output", event_metadata=None):
             row["player_id"] = local_to_global.get((eid, tc, pn), row["player_id"])
 
     # ---- Write CSVs --------------------------------------------------------
+    # Derive has_time_data flag per event from ends data
+    events_with_time = set(
+        row["event_id"]
+        for row in all_ends
+        if row.get("team1_time_left") or row.get("team2_time_left")
+    )
+    for event_row in events_rows:
+        event_row["has_time_data"] = event_row["event_id"] in events_with_time
+
     _write_events_csv(os.path.join(output_dir, "events.csv"), events_rows)
     _write_matches_csv(os.path.join(output_dir, "matches.csv"), all_matches)
     _write_teams_csv(os.path.join(output_dir, "teams.csv"), all_teams_dict)
@@ -802,7 +852,7 @@ def extract_all(pdf_paths, output_dir="output", event_metadata=None):
 # ---------------------------------------------------------------------------
 
 def _write_events_csv(path, rows):
-    fields = ["event_id", "event_name", "year", "location", "gender", "pdf_file"]
+    fields = ["event_id", "event_name", "year", "location", "gender", "pdf_file", "has_time_data"]
     _write_csv(path, fields, rows)
 
 
@@ -868,6 +918,9 @@ def _write_shots_csv(path, rows):
     _write_csv(path, all_fields, rows)
     parquet_path = os.path.splitext(path)[0] + ".parquet"
     df = pd.DataFrame(rows, columns=all_fields)
+    df[stone_fields] = df[stone_fields].replace("", None)
+    for col in stone_fields:
+        df[col] = pd.to_numeric(df[col], errors="coerce")
     df.to_parquet(parquet_path, index=False)
 
 

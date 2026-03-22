@@ -226,6 +226,71 @@ class TestLoadResultUrls:
             assert row["result_book_url"]
 
 
+
+class TestShotMetadataWords:
+    """Unit tests for _extract_shot_metadata_from_words."""
+
+    def _make_shot_images(self, n=16):
+        """Return *n* minimal shot-image dicts in a single row layout."""
+        # Each image is 30px wide, spaced 5px apart, bottom at y=100
+        imgs = []
+        for i in range(n):
+            x0 = i * 35
+            imgs.append({"x0": x0, "x1": x0 + 30, "bottom": 100})
+        return imgs
+
+    def test_returns_16_shots(self):
+        imgs = self._make_shot_images()
+        shots = _extract_shot_metadata_from_words([], imgs)
+        assert len(shots) == 16
+
+    def test_empty_words_empty_shots(self):
+        imgs = self._make_shot_images()
+        shots = _extract_shot_metadata_from_words([], imgs)
+        for s in shots:
+            assert s["team_code"] == ""
+            assert s["turn"] == ""
+            assert s["shot_type"] == ""
+
+    def test_through_shot_gets_not_considered_turn(self):
+        """Through-violation shots have no turn indicator in the PDF.
+        The post-processing guard should set turn = 'Not considered'."""
+        imgs = self._make_shot_images()
+        # Inject a 'Through Hog line violation' word into shot 0's type row.
+        # type row y-range: bottom + 6 to bottom + 25 → 106–125
+        words = [
+            {"x0": 5, "top": 110, "text": "Through"},
+            {"x0": 5, "top": 110, "text": "Hog"},
+            {"x0": 5, "top": 110, "text": "line"},
+            {"x0": 5, "top": 110, "text": "violation"},
+        ]
+        shots = _extract_shot_metadata_from_words(words, imgs)
+        assert shots[0]["shot_type"] == "Through Hog line violation"
+        assert shots[0]["turn"] == "Not considered"
+
+    def test_through_with_existing_turn_not_overwritten(self):
+        """If a Through shot somehow already has a turn value, it is kept."""
+        imgs = self._make_shot_images()
+        # Simulate ↺ and 'Through' in the same type row for shot 0
+        words = [
+            {"x0": 5, "top": 110, "text": "↺"},
+            {"x0": 5, "top": 110, "text": "Through"},
+        ]
+        shots = _extract_shot_metadata_from_words(words, imgs)
+        # The ↺ sets turn first; the guard should not overwrite it
+        assert shots[0]["turn"] == "Counter-clockwise"
+
+    def test_normal_shot_turn_unchanged(self):
+        """Non-Through shots with no turn token should have empty turn."""
+        imgs = self._make_shot_images()
+        words = [
+            {"x0": 5, "top": 110, "text": "Draw"},
+        ]
+        shots = _extract_shot_metadata_from_words(words, imgs)
+        assert shots[0]["shot_type"] == "Draw"
+        assert shots[0]["turn"] == ""  # no turn token — stays empty
+
+
 # ---------------------------------------------------------------------------
 # Integration tests (require PDF)
 # ---------------------------------------------------------------------------
