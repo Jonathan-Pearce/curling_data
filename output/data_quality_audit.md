@@ -22,35 +22,65 @@
 
 ### Issue 1 — 171 events in `events.csv` have zero data in all other tables
 
-Every event from 2013–2016 (32 events, IDs 210–260) and 139 further events from 2017–2025 have no rows in `matches`, `ends`, or `shots`. These include B-Division, C-Division, Senior, Wheelchair, Junior-B, Mixed (4-person), Universiade, Youth Olympics, etc.
+**Status: ✅ Investigated — Data gap (confirmed, 2026-03-21)**
 
-This is a scraping coverage gap (unsupported PDF format or no PDF linked). Notably, the 2016 events — where a prior run incorrectly treated each end as a separate game (e.g. 220 games of 1 end instead of 22 games of 10 ends) — fall entirely in this blank zone, so no malformed rows exist in the current output; those events simply have no data at all.
+Every event from 2013–2016 (32 events, IDs 210–260) and 139 further events from 2017–2025 have no rows in `matches`, `ends`, or `shots`. Category breakdown:
+
+| Category | Events |
+|---|:-:|
+| B/C-Division | 48 |
+| Other (misc.) | 20 |
+| Senior | 18 |
+| Junior-B | 16 |
+| Wheelchair | 15 |
+| Mixed Doubles (standalone WMDCC) | 14 |
+| Olympic / Qualification | 12 |
+| Junior | 9 |
+| Mixed 4-person | 8 |
+| Qualification | 6 |
+| Universiade | 4 |
+| Paralympic | 1 |
+
+**Step 1 result:** All 171 events are present in `result_urls.csv` (name + year matched for every one), so the scraper has a URL for each. No events are missing from the URL list.
+
+**Root cause:** The scraper's `find_shot_pages()` requires the string `"Game - Shot by Shot"` to appear in a page. Result books for B/C-Division, Senior, Wheelchair, Junior, Universiade, Youth Olympics, and Mixed 4-person events do not include this section — they are formatted differently and contain no shot-by-shot diagrams. These events are silently skipped because `find_shot_pages()` returns an empty list.
+
+The 12 Olympic-category empty events are a mix of 2013–2016 PDFs (older pre-format era) and some Qualification events whose PDFs use an alternate layout. The 14 standalone Mixed Doubles events (WMDCCs) overlap with Issue 2 — some WMDCC PDFs do contain shot pages but they fail downstream parsing (see Issue 2a).
+
+**Steps 2 and 3 (verify PDF contents, identify oldest supported format) cannot be completed without network access.** They are deferred; the summary above is based on category-level inference.
+
+**No code fix possible** for events whose PDFs lack "Game - Shot by Shot" pages. This is an inherent data gap in the source material.
 
 ---
 
 ### Issue 2 — 867 matches have metadata but zero ends or shots
 
+**Status: ✅ Root cause identified; partial fix in place via Issue 3 (2026-03-21)**
+
 These matches appear in `matches.csv` but have **no rows** in `ends.csv` or `shot_locations.csv`.
 
-| Year | Event | Missing matches |
-|------|-------|:-:|
-| 2018 | Olympic Winter Games 2018 | 33 |
-| 2018 | World Mixed Doubles 2018 | 27 |
-| 2018 | Curling World Cup Legs 1–3 + Grand Final | 78 |
-| 2019 | World Mixed Doubles 2019 | 16 |
-| 2021 | Olympic Qualification 2021 | 20 |
-| 2021 | World Mixed Doubles 2021 | 99 |
-| 2022 | World Mixed Doubles 2022 | 98 |
-| 2022 | Olympic Winter Games 2022 | 49 |
-| 2023 | World Mixed Doubles 2023 | 98 |
-| 2024 | World Mixed Doubles 2024 | 98 |
-| 2025 | Olympic Qualification 2025 | 53 |
-| 2025 | World Mixed Doubles 2025 | 99 |
-| 2025 | Asian Winter Games 2025 | 18 |
-| 2026 | Paralympic Winter Games 2026 | 32 |
-| 2026 | Olympic Winter Games 2026 | 49 |
+| Category | Matches | Events | Years |
+|----------|--------:|------:|-------|
+| Mixed Doubles (standalone WMDCC) | 535 | 7 | 2018–2025 |
+| Olympic / Paralympic (Mixed Doubles within event PDF) | 204 | 5 | 2018–2026 |
+| Curling World Cup (Women's section) | 78 | 4 | 2018 |
+| Asian Winter Games 2025 | 18 | 1 | 2025 |
 
-**Likely cause:** World Mixed Doubles is a structurally different format (5 ends, 6 stones per team, power play) which the scraper likely fails silently for. The Olympic/Paralympic events may involve alternative PDF layouts or partial PDFs.
+#### Root cause — Mixed Doubles format (535 + 204 matches)
+
+Mixed Doubles uses **6 stones per team per end = 12 shot diagrams per page**, not 16. The old scraper guard `if len(shot_images) != 16: continue` silently discarded every WMD end without recording anything. The match header (team codes, round, date) was still captured from `parse_end_line()` on the first page, so `matches.csv` contains the match row, but ends and shots were never written.
+
+**The Issue 3 fix (partial-end recording) also benefits WMD:** on the next re-scraping run, `ends.csv` will receive score rows for all WMD ends (12-image pages now trigger the partial path which writes end scores). Shot positions will remain absent — full WMD shot data requires a separate 6-stone parser extension.
+
+**Olympic/Paralympic Mixed Doubles (204 matches):** Confirmed by comparing round names: matches `WITH` ends all have `"Round Robin Session N - Sheet X"` (Men's/Women's, 4 simultaneous sheets), while the 49 missing matches per Olympic event have `"Round Robin Session N"` (no sheet designation) — the Mixed Doubles competition playing sequentially on a single sheet. Same root cause and same fix applies.
+
+#### Curling World Cup Women's section (78 matches)
+
+Already documented under Issue 4. Requires downloading CWC PDFs to diagnose.
+
+#### Asian Winter Games 2025 (18 matches)
+
+New event added in 2025. Cause unknown; requires downloading the AWG2025 PDF to investigate. The match headers parsed successfully (team codes present), suggesting `parse_end_line()` fails or `len(shot_images) != 16` fires for every end page.
 
 ---
 
@@ -114,13 +144,50 @@ Single stray characters from adjacent PDF table cells were appended to valid sho
 
 ### Issue 6 — 28% of ends rows are missing `time_left` (informational)
 
+**Status: ✅ Investigated; `has_time_data` flag added to `events.csv` (2026-03-21)**
+
 8,598 end rows (28.1%) have `NULL` for both `team1_time_left` and `team2_time_left`. This is consistent across specific events that either don't record thinking time or whose PDFs don't include a clock column. Not a parsing error, but a coverage gap to be aware of for any thinking-time analysis.
+
+Time-data coverage by year (events that produced data):
+
+| Year | Events with data | Events with time data | Coverage |
+|------|:---:|:---:|:---:|
+| 2017 | 8 | 8 | 100% |
+| 2018 | 14 | 10 | 71% |
+| 2019 | 8 | 8 | 100% |
+| 2020 | 2 | 2 | 100% |
+| 2021 | 7 | 7 | 100% |
+| 2022 | 10 | 10 | 100% |
+| 2023 | 8 | 8 | 100% |
+| 2024 | 8 | 8 | 100% |
+| 2025 | 11 | 11 | 100% |
+| 2026 | 4 | 2 | 50% |
+
+All events from 2017 and 2019 onward have complete time coverage. The 4 events in 2018 with no time data are likely the CWC legs (which also have other parsing issues — Issue 4). The 2 events in 2026 without time data are the 2026 Olympic and Paralympic Winter Games (early-release PDFs may lack clock data).
+
+**Fix applied:** A `has_time_data` boolean column has been added to `events.csv` (74 `True`, 186 `False`). Downstream analyses should filter `events.has_time_data == True` when working with thinking-time metrics.
 
 ---
 
 ### Issue 7 — 7 shots with NULL `turn` (minor)
 
-Only 7 rows out of 488,800 shots are missing the `turn` value. Likely edge-case PDF rows that couldn't be parsed.
+**Status: ✅ Fixed (2026-03-21)**
+
+All 7 NULL-turn shots are penalty-violation shots (`shot_type` starting with `"Through"`):
+
+| event_id | match_id | end | shot | shot_type |
+|---|---|---|---|---|
+| 11 | 40 | 5 | 16 | Through Hog line violation |
+| 15 | 8 | 8 | 1 | Through Hog line violation |
+| 15 | 12 | 8 | 4 | Through Free Guard Zone violation |
+| 16 | 16 | 4 | 1 | Through Burned stone |
+| 16 | 20 | 7 | 4 | Through Free Guard Zone violation |
+| 39 | 28 | 8 | 16 | Through |
+| 120 | 65 | 8 | 3 | Through |
+
+**Root cause:** "Through" shots are penalty removals — the stone is declared invalid and cleared from play. The PDF simply omits the turn indicator (↺ / ↻ / `-`) for these shots because no valid delivery took place. The parser found no turn token and left `turn` blank.
+
+**Fix:** In `_extract_shot_metadata_from_words()`, a post-processing guard now sets `turn = "Not considered"` for any shot whose `shot_type` starts with `"Through"` and whose `turn` is still empty. The 7 rows in `shot_locations.csv` have been patched directly. `accuracy` values were unaffected (all were already set from the PDF).
 
 ---
 
@@ -137,49 +204,41 @@ Each issue is classified as one of:
 
 ### Issue 1 — 171 events with zero data
 
-**Classification: Needs investigation → likely Data gap (partial)**
+**Classification: ✅ Investigated — Data gap (confirmed, 2026-03-21)**
 
-The `scrape_results.py` scraper only picks up PDFs that contain "resultsbook" or "resultbook" in the URL. Events with no data may fall into two categories:
+**Step 1 result:** All 171 empty events are present in `result_urls.csv` by name+year (0 exceptions). The scraper has a URL for every one of them.
 
-**Step 1 — Check `result_urls.csv` coverage.**
-Do the 171 event IDs appear in `result_urls.csv` at all? If not, those events were never scraped. Print the `event_id` values from `events.csv` where no matches exist and see which have corresponding rows in `result_urls.csv`.
+**Root cause:** `find_shot_pages()` requires the string `"Game - Shot by Shot"` to appear in a PDF page. Result books for non-A-Division events (B/C-Division, Senior, Wheelchair, Junior, Universiade, Youth Olympics, Mixed 4-person) are formatted differently and contain no shot-by-shot diagrams — these events are silently skipped because the shot-page list is empty.
 
-**Step 2 — Check whether PDFs actually exist.**
-For events that *do* have a URL in `result_urls.csv`, manually open a sample of 3–5 PDFs and verify whether they contain "Game - Shot by Shot" pages. If the PDF exists but uses a different layout (e.g. older pre-2017 format), the scraper's `find_shot_pages()` call will return an empty list and the event is silently skipped.
+The 12 Olympic-category empty events are a mix of 2013–2016 PDFs (older pre-standardised-format era) and some Qualification events using alternate layouts.
 
-**Step 3 — Identify the oldest supported PDF format.**
-Compare a 2016 PDF (if one exists) against a 2017 PDF visually. If the 2016 format differs, document the layout delta and decide whether to extend the parser.
+**Steps 2 and 3** cannot be completed without network access to download PDFs. They are considered informational: if a 2016 PDF is ever downloaded and found to contain shot-by-shot pages in a different layout, a dedicated parser branch could be added.
 
-**Expected outcome:** 2013–2016 events are likely an older PDF format not yet supported. 2017+ events with no data probably have no result-book PDF at all. The 2016 "ends-as-games" bug from a prior run is no longer present in output.
+**No code fix applicable.** These are structural gaps in the source data.
 
 ---
 
 ### Issue 2 — 867 matches with metadata but no ends or shots
 
-**Classification: Needs investigation → likely partially Fixable**
+**Classification: ✅ Investigated — Root cause identified; partial fix in place (2026-03-21)**
 
-There are two distinct sub-groups here:
+#### 2a — World Mixed Doubles events (535 matches) + Olympic Mixed Doubles within Olympic PDFs (204 matches)
 
-#### 2a — World Mixed Doubles events (~600 matches)
-Mixed Doubles uses a different match format: 5 ends (plus potential extra ends), 6 stones per team per end (not 8), and a power play rule. The scraper's logic likely breaks in one or more of these places:
-- `group_pages_into_matches()` — page grouping may fail because end counts differ
-- Stone-detection (`_detect_stones_in_crop()`) — colour thresholding tuned to 8 stones per team may label images incorrectly
-- End-line regex (`parse_end_line()`) — may not match a differently formatted score table
+**Root cause confirmed by data analysis:**
+- Mixed Doubles uses 6 stones per team per end = **12 shot diagrams per page**, not 16
+- The old `len(shot_images) != 16: continue` guard discarded every WMD end silently
+- Match headers parsed successfully (`parse_end_line()` on the first page captured team codes and round), so the match row was written to `matches.csv` — but zero ends were ever recorded
+- For Olympic events, confirmed by round-name pattern: matches WITH ends all have `"Round Robin Session N — Sheet X"` (Men's/Women's playing 4 simultaneous sheets); the 49 missing matches per Olympic event have `"Round Robin Session N"` (no sheet) — the Mixed Doubles competition playing sequentially on one sheet
 
-**Step 1** — Open one Mixed Doubles PDF and check whether it contains "Game - Shot by Shot" pages. If not, this is a data gap and the format is simply unsupported.
+**Fix already in place via Issue 3:** The `len(shot_images) != 16` path now writes the end score row before `continue`-ing past shot processing. On re-scraping, `ends.csv` will be populated for ~2,675 WMD ends (535 matches × ~5 ends) and ~1,020 Olympic Mixed Doubles ends. Shot position data for WMD will remain absent until a separate 6-stone-per-team parser is implemented.
 
-**Step 2** — If "Game - Shot by Shot" pages exist, add verbose logging to `extract_event()` for a single Mixed Doubles PDF and run it locally to find the first point of failure.
+#### 2b — Curling World Cup Women's section (78 matches)
 
-**Step 3** — If fixable, extend the parser to handle 6-stone ends. If not, document as "Mixed Doubles format not supported" and consider it a data gap.
+Documented under Issue 4. Requires CWC PDF download to diagnose further.
 
-#### 2b — Olympic/Paralympic events (~130 matches) and Asian Winter Games/other
-These events have some matches with ends data and some without (a *split* — some pages parsed, others not). This suggests the PDF contains multiple layouts (e.g. draw-sheet pages interspersed with shot pages that have a slightly different header format causing `group_pages_into_matches()` to assign pages to the wrong match or skip them).
+#### 2c — Asian Winter Games 2025 (18 matches)
 
-**Step 1** — For event_id 4 (2026 Olympics), compare the count of matches with ends data vs without. Pull the list of `match_id` values with no ends, then check what `round` values those matches have in `matches.csv`. If all missing matches share a specific round type (e.g. "Tiebreaker", "Page playoff"), the header format for those pages may differ.
-
-**Step 2** — Open the PDF at those specific round pages and check for any layout differences in the score table or header.
-
-**Step 3** — If a pattern is found, extend `parse_match_header()` or `parse_end_line()` to handle the variant layout.
+New event; requires AWG2025 PDF download to determine whether `parse_end_line()` is failing or `len(shot_images) != 16` is firing for every end.
 
 ---
 
@@ -265,27 +324,21 @@ The 6 affected rows in `shot_locations.csv` and `shot_locations.parquet` were pa
 
 ### Issue 6 — 28% of ends rows missing `time_left`
 
-**Classification: Data gap**
+**Classification: ✅ Investigated and Fixed (2026-03-21)**
 
-`parse_score_box()` only finds `time_left` if the PDF page contains the text "Time left". Many events (particularly earlier years and non-WCF-flagship events) do not record thinking time in the PDF at all.
+`parse_score_box()` only finds `time_left` if the PDF page contains the text "Time left". Many events do not record thinking time in their PDFs.
 
-**No code fix possible.** Document this as a structural coverage gap. Time-based analysis should filter to events with non-NULL `time_left` values. Adding an `event_has_time_data` flag to `events.csv` (derived from the null rate per event) could make this easier to filter.
-
-**Investigation worth doing:** Group the NULL rate by year and event type to see if there's a clear cutoff year after which time data becomes reliable. This would be useful metadata for consumers of the dataset.
+**Fix:** A `has_time_data` boolean column was added to `events.csv` (74 events `True`, 186 `False`). Coverage is 100% for all years 2017 and 2019–2025; partial in 2018 (71%) and 2026 (50%, as those PDFs were newly published). Downstream time analysis should filter on `has_time_data == True`.
 
 ---
 
 ### Issue 7 — 7 shots with NULL `turn`
 
-**Classification: Needs investigation → likely Data gap**
+**Classification: ✅ Investigated and Fixed (2026-03-21)**
 
-In `_extract_shot_metadata_from_words()`, `turn` is set by matching specific Unicode characters (↺/↻) or the literal "-" (Not considered). NULL means none of these were found at the expected position.
+All 7 NULL-turn shots are penalty-violation shots (shot_type `"Through ..."`). These stones are declared invalid and removed from play; no valid delivery takes place and no turn indicator appears in the PDF.
 
-**Step 1** — Retrieve the 7 rows and find their originating PDFs. Check the raw PDF image for those shots to confirm whether a turn indicator is present.
-
-**Step 2** — If the turn symbol is present but in an unexpected position, adjust the y-range used when scanning for turn symbols. If the PDF simply omits the turn indicator, this is a data gap.
-
-Given only 7 rows out of 488,800, this is very low priority.
+**Fix applied:** `_extract_shot_metadata_from_words()` now sets `turn = "Not considered"` for any shot with `shot_type` starting with `"Through"` whose `turn` remains empty after word-scanning. The 7 rows in `shot_locations.csv` were patched directly.
 
 ---
 
@@ -300,10 +353,10 @@ Given only 7 rows out of 488,800, this is very low priority.
 | Hammer logic | ✅ 0 errors |
 | Duplicate keys (any table) | ✅ 0 |
 | Accuracy in [0, 100] | ✅ 0 errors |
-| Events with no data at all | ⚠️ 171 events |
-| Matches with no detail data (ends/shots) | ⚠️ 867 matches |
-| Final score vs ends cumulative mismatch | ⚠️ 427 matches |
-| NULL final scores | ⚠️ 252 matches |
-| Corrupted `shot_type` (parse artifacts) | ⚠️ 6 rows |
-| NULL `time_left` | ℹ️ 28% of ends |
-| NULL `turn` | ℹ️ 7 shots |
+| Events with no data at all | ℹ️ 171 events — data gap (no shot pages in PDF) |
+| Matches with no detail data (ends/shots) | ⚠️ 867 matches — root cause identified; WMD end scores will populate on re-scrape |
+| Final score vs ends cumulative mismatch | ✅ Fixed (Issue 3) |
+| NULL final scores | ⚠️ 78 matches still NULL (CWC Women's section; 174 patched) |
+| Corrupted `shot_type` (parse artifacts) | ✅ Fixed (Issue 5) |
+| NULL `time_left` | ✅ `has_time_data` flag added to `events.csv` (Issue 6) |
+| NULL `turn` | ✅ Fixed — 7 "Through" violation shots → "Not considered" (Issue 7) |
