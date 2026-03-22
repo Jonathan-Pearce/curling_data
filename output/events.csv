@@ -1,0 +1,261 @@
+event_id,event_name,year,location,gender,pdf_file,has_time_data
+1,"Milano Cortina 2026 Paralympic Winter Games, Curling",2026,"Cortina, Italy",,PWG2026_ResultsBook.pdf,True
+2,World Junior Curling Championships 2026,2026,"Taarnby (Copenhagen), Denmark",m,WJCC2026_ResultsBook_Men.pdf,False
+3,World Junior Curling Championships 2026,2026,"Taarnby (Copenhagen), Denmark",w,WJCC2026_ResultsBook_Women.pdf,False
+4,"Milano Cortina 2026 Olympic Winter Games, Curling",2026,"Cortina, Italy",,OWG2026_ResultsBook.pdf,True
+5,World Mixed Doubles Qualification Event 2025,2025,"Dumfries, Scotland",mxd,WMDQE2025_ResultsBook.pdf,False
+6,World Junior-B Curling Championships 2025,2025,"Lohja, Finland",m,WJBCC2025_ResultsBook_Men.pdf,False
+7,World Junior-B Curling Championships 2025,2025,"Lohja, Finland",w,WJBCC2025_ResultsBook_Women.pdf?v=2,False
+8,Olympic Qualification Event 2025,2025,"Kelowna, BC, Canada",m,OQE2025_ResultsBook_Men.pdf,True
+9,Olympic Qualification Event 2025,2025,"Kelowna, BC, Canada",w,OQE2025_ResultsBook_Women.pdf,True
+10,Olympic Qualification Event 2025,2025,"Kelowna, BC, Canada",mxd,OQE2025_ResultsBook_MixedDoubles.pdf,True
+11,European Curling Championships 2025 A-Division,2025,"Lohja, Finland",m,ECC2025_ResultsBook_Men_A-Division.pdf,True
+12,European Curling Championships 2025 A-Division,2025,"Lohja, Finland",w,ECC2025_ResultsBook_Women_A-Division.pdf,True
+13,European Curling Championships 2025 B-Division,2025,"Lahti, Finland",m,ECC2025_ResultsBook_Men_B-Division.pdf?V=2,False
+14,European Curling Championships 2025 B-Division,2025,"Lahti, Finland",w,ECC2025_ResultsBook_Women_B-Division.pdf,False
+15,Pan Continental Curling Championships 2025 A-Division,2025,"Virginia, MN ,USA",m,PCCC2025_ResultsBook_Men_A-Division.pdf,True
+16,Pan Continental Curling Championships 2025 A-Division,2025,"Virginia, MN ,USA",w,PCCC2025_ResultsBook_Women_A-Division.pdf,True
+17,Pan Continental Curling Championships 2025 B-Division,2025,"Eveleth, MN ,USA",m,PCCC2025_ResultsBook_Men_B-Division.pdf,False
+18,Pan Continental Curling Championships 2025 B-Division,2025,"Eveleth, MN ,USA",w,PCCC2025_ResultsBook_Women_B-Division.pdf,False
+19,Pre-Olympic Qualification Event 2025,2025,"Aberdeen, Scotland",m,PRE-OQE2025_ResultsBook_Men.pdf,False
+20,Pre-Olympic Qualification Event 2025,2025,"Aberdeen, Scotland",w,PRE-OQE2025_ResultsBook_Women.pdf,False
+21,World Junior Mixed Doubles Curling Championship 2025,2025,"Edmonton, AB, Canada",mxd,WJMDCC2025_ResultsBook.pdf,False
+22,World Senior Curling Championships 2025,2025,"Fredericton, NB, Canada",m,WSCC2025_ResultsBook_Men.pdf,False
+23,World Senior Curling Championships 2025,2025,"Fredericton, NB, Canada",w,WSCC2025_ResultsBook_Women.pdf,False
+24,World Mixed Doubles Curling Championship 2025,2025,"Fredericton, NB, Canada",mxd,WMDCC2025_ResultsBook.pdf,True
+25,European Curling Championships 2025 C-Division,2025,"Östersund, Sweden",m,ECCC2025_ResultsBook_Men.pdf,False
+26,European Curling Championships 2025 C-Division,2025,"Östersund, Sweden",w,ECCC2025_ResultsBook_Women.pdf,False
+27,World Junior Curling Championships 2025,2025,"Cortina d'Ampezzo, Italy",m,WJCC2025_ResultsBook_Men.pdf,True
+28,World Junior Curling Championships 2025,2025,"Cortina d'Ampezzo, Italy",w,WJCC2025_ResultsBook_Women.pdf,True
+29,World Men's Curling Championship 2025,2025,"Moose Jaw, SK, Canada",m,WMCC2025_ResultsBook.pdf,True
+30,World Women's Curling Championship 2025,2025,"Uijeongbu, Korea",w,WWCC2025_ResultsBook.pdf,True
+31,World Wheelchair Mixed Doubles Championship 2025,2025,"Stevenston, Scotland",mxd,WWhMDCC2025_ResultsBook.pdf,False
+32,World Wheelchair Championship 2025,2025,"Stevenston, Scotland",,WWhCC2025_ResultsBook.pdf,False
+33,Asian Winter Games 2025,2025,"Harbin, China",,AWG2025_CUR_ResultsBook.pdf,True
+34,FISU World University Games 2025,2025,"Turin, Italy",,WUG2025_CUR_ResultsBook.pdf,False
+35,World Junior-B Curling Championships 2024,2024,"Lohja, Finland",m,WJBCC2024_ResultsBook_Men.pdf,False
+36,World Junior-B Curling Championships 2024,2024,"Lohja, Finland",w,WJBCC2024_ResultsBook_Women.pdf,False
+37,World Mixed Doubles Qualification Event 2024,2024,"Dumfries, Scotland",mxd,WMDQE2024_ResultsBook.pdf,False
+38,European Curling Championships 2024 A-Division,2024,"Lohja, Finland",m,ECC2024_ResultsBook_Men_A-Division.pdf,True
+39,European Curling Championships 2024 A-Division,2024,"Lohja, Finland",w,ECC2024_ResultsBook_Women_A-Division.pdf,True
+40,European Curling Championships 2024 B-Division,2024,"Östersund, Sweden",m,ECC2024_ResultsBook_Men_B-Division.pdf,False
+41,European Curling Championships 2024 B-Division,2024,"Östersund, Sweden",w,ECC2024_ResultsBook_Women_B-Division.pdf,False
+42,World Wheelchair-B Curling Championship 2024,2024,"Lohja, Finland",,WWhBCC2024_ResultsBook.pdf,False
+43,Pan Continental Curling Championships 2024 A-Division,2024,"Lacombe, AB, Canada",m,PCCC2024_ResultsBook_Men_A-Division.pdf,True
+44,Pan Continental Curling Championships 2024 A-Division,2024,"Lacombe, AB, Canada",w,PCCC2024_ResultsBook_Women_A-Division.pdf,True
+45,Pan Continental Curling Championships 2024 B-Division,2024,"Lacombe, AB, Canada",m,PCCC2024_ResultsBook_Men_B-Division.pdf,False
+46,Pan Continental Curling Championships 2024 B-Division,2024,"Lacombe, AB, Canada",w,PCCC2024_ResultsBook_Women_B-Division.pdf,False
+47,World Mixed Curling Championship 2024,2024,"Aberdeen, Scotland",mx,WMxCC2024_ResultsBook.pdf,False
+48,European Curling Championships C-Division 2024,2024,"Dumfries, Scotland",m,ECCC2024_ResultsBook_Men.pdf,False
+49,European Curling Championships C-Division 2024,2024,"Dumfries, Scotland",w,ECCC2024_ResultsBook_Women.pdf,False
+50,World Mixed Doubles Curling Championship 2024,2024,"Östersund, Sweden",mxd,WMDCC2024_ResultsBook.pdf?V=2,True
+51,World Senior Curling Championships 2024,2024,"Östersund, Sweden",m,WSCC2024_ResultsBook_Men.pdf,False
+52,World Senior Curling Championships 2024,2024,"Östersund, Sweden",w,WSCC2024_ResultsBook_Women.pdf,False
+53,World Men's Curling Championship 2024,2024,"Schaffhausen, Switzerland",m,WMCC2024_ResultsBook.pdf,True
+54,World Women's Curling Championship 2024,2024,"Sydney, NS, Canada",w,WWCC2024_ResultsBook.pdf,True
+55,World Wheelchair Mixed Doubles Championship 2024,2024,"Gangneung, Korea",mxd,WWhMDCC2024_ResultsBook.pdf,False
+56,World Wheelchair Championship 2024,2024,"Gangneung, Korea",,WWhCC2024_ResultsBook.pdf?V=2,False
+57,World Junior Curling Championships 2024,2024,"Lohja, Finland",m,WJCC2024_ResultsBook_Men.pdf,True
+58,World Junior Curling Championships 2024,2024,"Lohja, Finland",w,WJCC2024_ResultsBook_Women.pdf,True
+59,Winter Youth Olympic Games 2024,2024,"Gangneung, Korea",,YOG2024_Resultsbook.pdf,False
+60,World Junior-B Curling Championships 2023,2023,"Lohja, Finland",m,WJBCC2023_ResultsBook_Men.pdf,False
+61,World Junior-B Curling Championships 2023,2023,"Lohja, Finland",w,WJBCC2023_ResultsBook_Women.pdf,False
+62,World Mixed Doubles Qualification Event 2023,2023,"Dumfries, Scotland",mxd,WMDQE2023_ResultsBook.pdf,False
+63,European Curling Championships 2023 A-Division,2023,"Aberdeen, Scotland",m,ECC2023_ResultsBook_Men_A-Division.pdf,True
+64,European Curling Championships 2023 A-Division,2023,"Aberdeen, Scotland",w,ECC2023_ResultsBook_Women_A-Division.pdf,True
+65,European Curling Championships 2023 B-Division,2023,"Perth, Scotland",m,ECC2023_ResultsBook_Men_B-Division.pdf,False
+66,European Curling Championships 2023 B-Division,2023,"Perth, Scotland",w,ECC2023_ResultsBook_Women_B-Division.pdf,False
+67,World Wheelchair-B Curling Championship 2023,2023,"Lohja, Finland",,WWhBCC2023_ResultsBook.pdf,False
+68,Pan Continental Curling Championships 2023 A-Division,2023,"Kelowna, BC, Canada",m,PCCC2023_ResultsBook_Men_A-Division.pdf,True
+69,Pan Continental Curling Championships 2023 A-Division,2023,"Kelowna, BC, Canada",w,PCCC2023_ResultsBook_Women_A-Division.pdf,True
+70,Pan Continental Curling Championships 2023 B-Division,2023,"Kelowna, BC, Canada",m,PCCC2023_ResultsBook_Men_B-Division.pdf,False
+71,Pan Continental Curling Championships 2023 B-Division,2023,"Kelowna, BC, Canada",w,PCCC2023_ResultsBook_Women_B-Division.pdf,False
+72,World Mixed Curling Championship 2023,2023,"Aberdeen, Scotland",mx,WMxCC2023_ResultsBook.pdf,False
+73,European Curling Championships C-Division 2023,2023,"Dumfries, Scotland",m,ECCC2023_ResultsBook_Men.pdf,False
+74,European Curling Championships C-Division 2023,2023,"Dumfries, Scotland",w,ECCC2023_ResultsBook_Women.pdf,False
+75,World Mixed Doubles Curling Championship 2023,2023,"Gangneung, Korea",mxd,WMDCC2023_ResultsBook.pdf,True
+76,World Senior Curling Championships 2023,2023,"Gangneung, Korea",m,WSCC2023_ResultsBook_Men.pdf,False
+77,World Senior Curling Championships 2023,2023,"Gangneung, Korea",w,WSCC2023_ResultsBook_Women.pdf,False
+78,World Men's Curling Championship 2023,2023,"Ottawa, ON, Canada",m,WMCC2023_ResultsBook.pdf,True
+79,World Women's Curling Championships 2023,2023,"Sandviken, Sweden",w,WWCC2023_ResultsBook.pdf,True
+80,World Wheelchair Curling Championships 2023,2023,"Richmond, BC, Canada",,WWhCC2023_ResultsBook.pdf,False
+81,World Wheelchair Mixed Doubles Curling Championships 2023,2023,"Richmond, BC, Canada",mxd,WWhMDCC2023_ResultsBook.pdf,False
+82,World Junior Curling Championships 2023,2023,"Füssen, Germany",m,WJCC2023_ResultsBook_Men.pdf,True
+83,World Junior Curling Championships 2023,2023,"Füssen, Germany",w,WJCC2023_ResultsBook_Women.pdf,True
+84,World Junior-B Curling Championships 2022-2023,2022,"Lohja, Finland",m,WJBCC2022-23_ResultsBook_Men.pdf,False
+85,World Junior-B Curling Championships 2022-2023,2022,"Lohja, Finland",w,WJBCC2022-23_ResultsBook_Women.pdf,False
+86,World Mixed Doubles Qualification Event 2022,2022,"Dumfries, Scotland",mxd,WMDQE2022_ResultsBook.pdf,False
+87,European Curling Championships 2022 A-Division,2022,"Östersund, Sweden",m,ECC2022_ResultsBook_Men_A-Division.pdf,True
+88,European Curling Championships 2022 A-Division,2022,"Östersund, Sweden",w,ECC2022_ResultsBook_Women_A-Division.pdf,True
+89,European Curling Championships 2022 B-Division,2022,"Östersund, Sweden",m,ECC2022_ResultsBook_Men_B-Division.pdf,False
+90,European Curling Championships 2022 B-Division,2022,"Östersund, Sweden",w,ECC2022_ResultsBook_Women_B-Division.pdf,False
+91,World Wheelchair-B Curling Championship 2022,2022,"Lohja, Finland",,WWhBCC2022_ResultsBook.pdf,False
+92,Pan Continental Curling Championships 2022 A-Division,2022,"Calgary, AB, Canada",m,PCCC2022_ResultsBook_Men_A-Division.pdf,True
+93,Pan Continental Curling Championships 2022 A-Division,2022,"Calgary, AB, Canada",w,PCCC2022_ResultsBook_Women_A-Division.pdf,True
+94,Pan Continental Curling Championships 2022 B-Division,2022,"Calgary, AB, Canada",m,PCCC2022_ResultsBook_Men_B-Division.pdf,False
+95,Pan Continental Curling Championships 2022 B-Division,2022,"Calgary, AB, Canada",w,PCCC2022_ResultsBook_Women_B-Division.pdf,False
+96,World Mixed Curling Championship 2022,2022,"Aberdeen, Scotland",mx,WMxCC2022_ResultsBook.pdf,False
+97,World Junior Curling Championships 2022,2022,"Jönköping, Sweden",m,WJCC2022_ResultsBook_Men.pdf,True
+98,World Junior Curling Championships 2022,2022,"Jönköping, Sweden",w,WJCC2022_ResultsBook_Women.pdf,True
+99,European Curling Championships C-Division 2022,2022,"Kaunas, Lithuania",m,ECCC2022_ResultsBook_Men.pdf,False
+100,European Curling Championships C-Division 2022,2022,"Kaunas, Lithuania",w,ECCC2022_ResultsBook_Women.pdf,False
+101,World Wheelchair Mixed Doubles Curling Championship 2022,2022,"Lohja, Finland",mxd,WWhMDCC2022_ResultsBook.pdf,False
+102,World Mixed Doubles Curling Championship 2022,2022,"Geneva, Switzerland",mxd,WMDCC2022_ResultsBook.pdf,True
+103,World Senior Curling Championships 2022,2022,"Geneva, Switzerland",m,WSCC2022_ResultsBook_Men.pdf,False
+104,World Senior Curling Championships 2022,2022,"Geneva, Switzerland",w,WSCC2022_ResultsBook_Women.pdf,False
+105,World Men's Curling Championship 2022,2022,"Las Vegas, NV, USA",m,WMCC2022_ResultsBook.pdf,True
+106,World Women's Curling Championship 2022,2022,"Prince George, BC, Canada",w,WWCC2022_ResultsBook.pdf,True
+107,Paralympic Winter Games 2022,2022,"Beijing, China",,PWG2022_ResultsBook.pdf,True
+108,Olympic Winter Games 2022,2022,"Beijing, China",,OWG2022_ResultsBook.pdf,True
+109,World Qualification Event 2022,2022,"Lohja, Finland",m,WQE2022_ResultsBook_Men.pdf,False
+110,World Qualification Event 2022,2022,"Lohja, Finland",w,WQE2022_ResultsBook_Women.pdf,False
+111,Olympic Qualification Event 2021,2021,"Leeuwarden, Netherlands",mxd,OQE2021_ResultsBook_MixedDoubles.pdf,True
+112,Olympic Qualification Event 2021,2021,"Leeuwarden, Netherlands",m,OQE2021_ResultsBook_Men.pdf,True
+113,Olympic Qualification Event 2021,2021,"Leeuwarden, Netherlands",w,OQE2021_ResultsBook_Women.pdf,True
+114,European Curling Championships 2021 A-Division,2021,"Lillehammer, Norway",m,ECC2021_ResultsBook_Men_A-Division.pdf,True
+115,European Curling Championships 2021 A-Division,2021,"Lillehammer, Norway",w,ECC2021_ResultsBook_Women_A-Division.pdf,True
+116,European Curling Championships 2021 B-Division,2021,"Lillehammer, Norway",m,ECC2021_ResultsBook_Men_B-Division.pdf,False
+117,European Curling Championships 2021 B-Division,2021,"Lillehammer, Norway",w,ECC2021_ResultsBook_Women_B-Division.pdf,False
+118,Pacific-Asia Curling Championships 2021,2021,"Almaty, Kazakhstan",m,PACC2021_ResultsBook_Men.pdf,False
+119,Pacific-Asia Curling Championships 2021,2021,"Almaty, Kazakhstan",w,PACC2021_ResultsBook_Women.pdf,False
+120,World Wheelchair Curling Championship 2021,2021,"Beijing, China",,WWhCC2021_ResultsBook.pdf,True
+121,Pre-Olympic Qualification Event 2021,2021,"Erzurum, Turkey",mxd,PRE-OQE2021_ResultsBook_MixedDoubles.pdf,False
+122,Pre-Olympic Qualification Event 2021,2021,"Erzurum, Turkey",m,PRE-OQE2021_ResultsBook_Men.pdf,False
+123,Pre-Olympic Qualification Event 2021,2021,"Erzurum, Turkey",w,PRE-OQE2021_ResultsBook_Women.pdf?v=2,False
+124,European Curling Championships 2021 C-Division,2021,"Geneva, Switzerland",m,ECCC2021_ResultsBook_Men.pdf,False
+125,European Curling Championships 2021 C-Division,2021,"Geneva, Switzerland",w,ECCC2021_ResultsBook_Women.pdf,False
+126,World Mixed Doubles Curling Championship 2021,2021,"Aberdeen, Scotland",mxd,WMDCC2021_ResultsBook.pdf,True
+127,World Women's Curling Championship 2021,2021,"Calgary, AB, Canada",w,WWCC2021_ResultsBook.pdf,True
+128,World Men's Curling Championship 2021,2021,"Calgary, AB, Canada",m,WMCC2021_ResultsBook.pdf,True
+129,World Wheelchair-B Curling Championship 2020/2021,2020,"Lohja, Finland",,WWhBCC2020_ResultsBook.pdf,False
+130,World Wheelchair Curling Championship 2020,2020,"Wetzikon, Switzerland",,WWhCC2020_ResultsBook.pdf,False
+131,World Junior Curling Championships 2020,2020,"Krasnoyarsk, Russia",m,WJCC2020_ResultsBook_Men.pdf,True
+132,World Junior Curling Championships 2020,2020,"Krasnoyarsk, Russia",w,WJCC2020_ResultsBook_Women.pdf,True
+133,World Qualification Event 2020,2020,"Lohja, Finland",m,WQE2020_ResultsBook_Men.pdf,False
+134,World Qualification Event 2020,2020,"Lohja, Finland",w,WQE2020_ResultsBook_Women.pdf,False
+135,Winter Youth Olympic Games 2020,2020,"Lausanne/Champery, Switzerland",,YOG2020_Resultsbook.pdf,False
+136,World Junior-B Curling Championships 2019-20,2019,"Lohja, Finland",m,WJBCC2019-2020_ResultsBook_Men.pdf,False
+137,World Junior-B Curling Championships 2019-20,2019,"Lohja, Finland",w,WJBCC2019-2020_ResultsBook_Women.pdf,False
+138,World Mixed Doubles Qualification Event 2019,2019,"Greenacres, Scotland",mxd,WMDQE2019_ResultsBook.pdf,False
+139,World Wheelchair-B Curling Championship 2019,2019,"Lohja, Finland",,WWhBCC2019_ResultsBook.pdf,False
+140,European Curling Championships 2019 A-Division,2019,"Helsingborg, Sweden",m,ECC2019_ResultsBook_Men_A-Division.pdf,True
+141,European Curling Championships 2019 A-Division,2019,"Helsingborg, Sweden",w,ECC2019_ResultsBook_Women_A-Division.pdf,True
+142,European Curling Championships 2019 B-Division,2019,"Helsingborg, Sweden",m,ECC2019_ResultsBook_Men_B-Division.pdf,False
+143,European Curling Championships 2019 B-Division,2019,"Helsingborg, Sweden",w,ECC2019_ResultsBook_Women_B-Division.pdf,False
+144,Pacific-Asia Curling Championships 2019,2019,"Shenzhen, China",m,PACC2019_ResultsBook_Men.pdf,True
+145,Pacific-Asia Curling Championships 2019,2019,"Shenzhen, China",w,PACC2019_ResultsBook_Women.pdf,True
+146,World Mixed Curling Championship 2019,2019,"Aberdeen, Scotland",mx,WMxCC2019_ResultsBook.pdf,False
+147,Curling World Cup 2018/19 Grand Final,2018,"Beijing, China",,CWC2018-19_Final_ResultsBook.pdf,False
+148,World Mixed Doubles Curling Championship 2019,2019,"Stavanger, Norway",mxd,WMDCC2019_ResultsBook.pdf,True
+149,World Senior Curling Championships 2019,2019,"Stavanger, Norway",m,WSCC2019_ResultsBook_Men.pdf,False
+150,World Senior Curling Championships 2019,2019,"Stavanger, Norway",w,WSCC2019_ResultsBook_Women.pdf,False
+151,European Curling Championships 2019 C-Division,2019,"Brasov, Romania",m,ECCC2019_ResultsBook_Men.pdf,False
+152,European Curling Championships 2019 C-Division,2019,"Brasov, Romania",w,ECCC2019_ResultsBook_Women.pdf,False
+153,World Men's Curling Championship 2019,2019,"Lethbridge, AB, Canada",m,WMCC2019_ResultsBook.pdf,True
+154,World Women's Curling Championship 2019,2019,"Silkeborg, Denmark",w,WWCC2019_ResultsBook.pdf,True
+155,World Wheelchair Curling Championship 2019,2019,"Stirling, Scotland",,WWhCC2019_ResultsBook.pdf,False
+156,Winter Universiade 2019,2019,"Krasnoyarsk, Russia",,WUNI2019_ResultsBook.pdf,False
+157,World Junior Curling Championships 2019,2019,"Liverpool, NS, Canada",m,WJCC2019_ResultsBook_Men.pdf,True
+158,World Junior Curling Championships 2019,2019,"Liverpool, NS, Canada",w,WJCC2019_ResultsBook_Women.pdf,True
+159,European Youth Olympic Festival 2019,2019,"Sarajevo and East Sarajevo, BIH",,EYOF2019_ResultsBook.pdf,False
+160,Curling World Cup 2018/19 Leg 3,2018,"Jonkoping, Sweden",,CWC2018-19_Leg3_ResultsBook.pdf,False
+161,World Qualification Event 2019,2019,"Naseby, New Zealand",m,WQE2019_ResultsBook_Men.pdf,False
+162,World Qualification Event 2019,2019,"Naseby, New Zealand",w,WQE2019_ResultsBook_Women.pdf,False
+163,World Junior-B Curling Championships 2019,2019,"Lohja, Finland",m,WJBCC2019_ResultsBook_Men.pdf,False
+164,World Junior-B Curling Championships 2019,2019,"Lohja, Finland",w,WJBCC2019_ResultsBook_Women.pdf,False
+165,Curling World Cup 2018/19 Leg 2,2018,"Omaha, NE, United States",,CWC2018-19_Leg2_ResultsBook.pdf,False
+166,European Curling Championships 2018 A-Division,2018,"Tallinn, Estonia",m,ECC2018_ResultsBook_Men_A-Division.pdf,True
+167,European Curling Championships 2018 A-Division,2018,"Tallinn, Estonia",w,ECC2018_ResultsBook_Women_A-Division.pdf,True
+168,European Curling Championships 2018 B-Division,2018,"Tallinn, Estonia",m,ECC2018_ResultsBook_Men_B-Division.pdf,False
+169,European Curling Championships 2018 B-Division,2018,"Tallinn, Estonia",w,ECC2018_ResultsBook_Women_B-Division.pdf,False
+170,World Wheelchair-B Curling Championship 2018,2018,"Lohja, Finland",,WWhBCC2018_ResultsBook.pdf,False
+171,Pacific-Asia Curling Championships 2018,2018,"Gangneung, Republic of Korea",m,PACC2018_ResultsBook_Men.pdf,True
+172,Pacific-Asia Curling Championships 2018,2018,"Gangneung, Republic of Korea",w,PACC2018_ResultsBook_Women.pdf,True
+173,World Mixed Curling Championship 2018,2018,"Kelowna, BC, Canada",mx,WMxCC2018_ResultsBook.pdf,False
+174,Curling World Cup 2018/19 Leg 1,2018,"Suzhou, China",,CWC2018-19_Leg1_ResultsBook.pdf,False
+175,World Mixed Doubles Curling Championship 2018,2018,"Östersund, Sweden",mxd,WMDCC2018_ResultsBook.pdf,True
+176,World Senior Curling Championships 2018,2018,"Östersund, Sweden",m,WSCC2018_ResultsBook_Men.pdf,False
+177,World Senior Curling Championships 2018,2018,"Östersund, Sweden",w,WSCC2018_ResultsBook_Women.pdf,False
+178,European Curling Championships 2018 C-Division,2018,"Taarnby (Copenhagen), Denmark",m,ECCC2018_ResultsBook_Men.pdf,False
+179,European Curling Championships 2018 C-Division,2018,"Taarnby (Copenhagen), Denmark",w,ECCC2018_ResultsBook_Women.pdf,False
+180,World Men's Curling Championship 2018,2018,"Las Vegas, NV, United States",m,WMCC2018_ResultsBook.pdf,True
+181,World Women's Curling Championship 2018,2018,"North Bay, ON, Canada",w,WWCC2018_ResultsBook.pdf,True
+182,Paralympic Winter Games 2018,2018,"PyeongChang, Republic of Korea",,PWG2018_ResultsBook.pdf,True
+183,World Junior Curling Championships 2018,2018,"Aberdeen, Scotland",m,WJCC2018_ResultsBook_Men.pdf,True
+184,World Junior Curling Championships 2018,2018,"Aberdeen, Scotland",w,WJCC2018_ResultsBook_Women.pdf,True
+185,Olympic Winter Games 2018,2018,"PyeongChang, Republic of Korea",,OWG2018_ResultsBook.pdf,True
+186,World Junior-B Curling Championships 2018,2018,"Lohja, Finland",m,WJBCC2018_ResultsBook_Men.pdf,False
+187,World Junior-B Curling Championships 2018,2018,"Lohja, Finland",w,WJBCC2018_ResultsBook_Women.pdf,False
+188,Olympic Qualification Event 2017,2017,"Pilsen, Czech Republic",m,OQE2017_ResultsBook_Men.pdf,True
+189,Olympic Qualification Event 2017,2017,"Pilsen, Czech Republic",w,OQE2017_ResultsBook_Women.pdf,True
+190,European Curling Championships 2017 A-Division,2017,"St. Gallen, Switzerland",m,ECC2017_ResultsBook_Men_A-Division.pdf,True
+191,European Curling Championships 2017 A-Division,2017,"St. Gallen, Switzerland",w,ECC2017_ResultsBook_Women_A-Division.pdf,True
+192,European Curling Championships 2017 B-Division,2017,"St. Gallen, Switzerland",m,ECC2017_ResultsBook_Men_B-Division.pdf,True
+193,European Curling Championships 2017 B-Division,2017,"St. Gallen, Switzerland",w,ECC2017_ResultsBook_Women_B-Division.pdf,True
+194,Pacific-Asia Curling Championships 2017,2017,"Erina, NSW, Australia",m,PACC2017_ResultsBook_Men.pdf,True
+195,Pacific-Asia Curling Championships 2017,2017,"Erina, NSW, Australia",w,PACC2017_ResultsBook_Women.pdf,True
+196,World Mixed Curling Championship 2017,2017,"Champery, Switzerland",mx,WMxCC2017_ResultsBook.pdf,False
+197,World Mixed Doubles Curling Championship 2017,2017,"Lethbridge, AB, Canada",mxd,WMDCC2017_ResultsBook.pdf,False
+198,World Senior Curling Championships 2017,2017,"Lethbridge, AB, Canada",m,WSCC2017_ResultsBook_Men.pdf,False
+199,World Senior Curling Championships 2017,2017,"Lethbridge, AB, Canada",w,WSCC2017_ResultsBook_Women.pdf,False
+200,European Curling Championships 2017 C-Division,2017,"Canillo, Andorra",m,ECCC2017_ResultsBook_Men.pdf,False
+201,European Curling Championships 2017 C-Division,2017,"Canillo, Andorra",w,ECCC2017_ResultsBook_Women.pdf,False
+202,World Men's Curling Championship 2017,2017,"Edmonton, AB, Canada",m,WMCC2017_ResultsBook.pdf,False
+203,World Women's Curling Championship 2017,2017,"Beijing, China",w,WWCC2017_ResultsBook.pdf,False
+204,World Wheelchair Curling Championship 2017,2017,"Gangneung, Republic of Korea",,WWhCC2017_ResultsBook.pdf,False
+205,World Junior Curling Championships 2017,2017,"Gangneung, Republic of Korea",m,WJCC2017_ResultsBook_Men.pdf,False
+206,World Junior Curling Championships 2017,2017,"Gangneung, Republic of Korea",w,WJCC2017_ResultsBook_Women.pdf,False
+207,Winter Universiade 2017,2017,"Almaty, Kazakhstan",,WUNI2017_ResultsBook.pdf,False
+208,World Junior-B Curling Championships 2017,2017,"Östersund, Sweden",m,WJBCC2017_ResultsBook_Men.pdf,False
+209,World Junior-B Curling Championships 2017,2017,"Östersund, Sweden",w,WJBCC2017_ResultsBook_Women.pdf,False
+210,European Curling Championships 2016 A-Division,2016,"Braehead, Scotland",m,ECC2016_ResultsBook_Men_A-Division.pdf,False
+211,European Curling Championships 2016 A-Division,2016,"Braehead, Scotland",w,ECC2016_ResultsBook_Women_A-Division.pdf,False
+212,European Curling Championships 2016 B-Division,2016,"Braehead, Scotland",m,ECC2016_ResultsBook_Men_B-Division.pdf,False
+213,European Curling Championships 2016 B-Division,2016,"Braehead, Scotland",w,ECC2016_ResultsBook_Women_B-Division.pdf,False
+214,Pacific-Asia Curling Championships 2016,2016,"Uiseong, Republic of Korea",m,PACC2016_ResultsBook_Men.pdf,False
+215,Pacific-Asia Curling Championships 2016,2016,"Uiseong, Republic of Korea",w,PACC2016_ResultsBook_Women.pdf,False
+216,World Wheelchair-B Curling Championship 2016,2016,"Lohja, Finland",,WWhBCC2016_ResultsBook.pdf,False
+217,World Mixed Curling Championship 2016,2016,"Kazan, Russia",mx,WMxCC2016_ResultsBook.pdf,False
+218,World Mixed Doubles Curling Championship 2016,2016,"Karlstad, Sweden",mxd,WMDCC2016_ResultsBook.pdf,False
+219,World Senior Curling Championships 2016,2016,"Karlstad, Sweden",m,WSCC2016_ResultsBook_Men.pdf,False
+220,World Senior Curling Championships 2016,2016,"Karlstad, Sweden",w,WSCC2016_ResultsBook_Women.pdf,False
+221,World Men's Curling Championship 2016,2016,"Basel, Switzerland",m,WMCC2016_ResultsBook.pdf,False
+222,World Junior Curling Championships 2016,2016,"Taarnby (Copenhagen), Denmark",m,WJCC2016_ResultsBook_Men.pdf,False
+223,World Junior Curling Championships 2016,2016,"Taarnby (Copenhagen), Denmark",w,WJCC2016_ResultsBook_Women.pdf,False
+224,World Wheelchair Curling Championship 2016,2016,"Lucerne, Switzerland",,WWhCC2016_ResultsBook.pdf,False
+225,Winter Youth Olympic Games 2016,2016,"Lillehammer, Norway",,YOG2016_Resultsbook.pdf,False
+226,European Curling Championships 2015 A-Division,2015,"Esbjerg, Denmark",m,ECC2015_ResultsBook_Men_A-Division.pdf,False
+227,European Curling Championships 2015 A-Division,2015,"Esbjerg, Denmark",w,ECC2015_ResultsBook_Women_A-Division.pdf,False
+228,European Curling Championships 2015 B-Division,2015,"Esbjerg, Denmark",m,ECC2015_ResultsBook_Men_B-Division.pdf,False
+229,European Curling Championships 2015 B-Division,2015,"Esbjerg, Denmark",w,ECC2015_ResultsBook_Women_B-Division.pdf,False
+230,Pacific-Asia Curling Championships 2015,2015,"Almaty, Kazakhstan",m,PACC2015_ResultsBook_Men.pdf,False
+231,Pacific-Asia Curling Championships 2015,2015,"Almaty, Kazakhstan",w,PACC2015_ResultsBook_Women.pdf,False
+232,European Curling Championships 2015 C-Division,2015,"Champery, Switzerland",m,ECCC2015_ResultsBook_Men.pdf,False
+233,European Curling Championships 2015 C-Division,2015,"Champery, Switzerland",w,ECCC2015_ResultsBook_Women.pdf,False
+234,World Mixed Curling Championship 2015,2015,"Berne, Switzerland",mx,WMxCC2015_ResultsBook.pdf,False
+235,World Mixed Doubles Curling Championship 2015,2015,"Sochi, Russia",mxd,WMDCC2015_ResultsBook.pdf,False
+236,World Senior Curling Championships 2015,2015,"Sochi, Russia",,WSCC2015_ResultsBook.pdf,False
+237,World Women's Curling Championship 2015,2015,"Sapporo, Japan",w,WWCC2015_ResultsBook.pdf,False
+238,World Junior Curling Championships 2015,2015,"Tallinn, Estonia",m,WJCC2015_ResultsBook_Men.pdf,False
+239,World Junior Curling Championships 2015,2015,"Tallinn, Estonia",w,WJCC2015_ResultsBook_Women.pdf,False
+240,Winter Universiade 2015,2015,"Granada, Spain",,WUNI2015_ResultsBook.pdf,False
+241,European Curling Championships 2014 A-Division,2014,"Champery, Switzerland",m,ECC2014_ResultsBook_Men_A-Division.pdf,False
+242,European Curling Championships 2014 A-Division,2014,"Champery, Switzerland",w,ECC2014_ResultsBook_Women_A-Division.pdf,False
+243,European Curling Championships 2014 B-Division,2014,"Champery, Switzerland",m,ECC2014_ResultsBook_Men_B-Division.pdf,False
+244,European Curling Championships 2014 B-Division,2014,"Champery, Switzerland",w,ECC2014_ResultsBook_Women_B-Division.pdf,False
+245,World Mixed Doubles Curling Championship 2014,2014,"Dumfries, Scotland",mxd,WMDCC2014_ResultsBook.pdf,False
+246,World Senior Curling Championships 2014,2014,"Dumfries, Scotland",,WSCC2014_ResultsBook.pdf,False
+247,World Men's Curling Championship 2014,2014,"Beijing, China",m,WMCC2014_ResultsBook.pdf,False
+248,Paralympic Winter Games 2014,2014,"Sochi, Russia",,PWG2014_ResultsBook.pdf,False
+249,World Junior Curling Championships 2014,2014,"Flims, Switzerland",m,WJCC2014_ResultsBook_Men.pdf,False
+250,World Junior Curling Championships 2014,2014,"Flims, Switzerland",w,WJCC2014_ResultsBook_Women.pdf,False
+251,Olympic Winter Games 2014,2014,"Sochi, Russia",,OWG2014_ResultsBook.pdf,False
+252,Winter Universiade 2013,2013,"Trentino, Italy",,WUNI2013_ResultsBook.pdf,False
+253,Olympic Qualification Event 2013,2013,"Fuessen, Germany",m,OQE2013_ResultsBook_Men.pdf,False
+254,Olympic Qualification Event 2013,2013,"Fuessen, Germany",w,OQE2013_ResultsBook_Women.pdf,False
+255,European Curling Championships 2013 A-Division,2013,"Stavanger, Norway",m,ECC2013_ResultsBook_Men_A-Division.pdf,False
+256,European Curling Championships 2013 A-Division,2013,"Stavanger, Norway",w,ECC2013_ResultsBook_Women_A-Division.pdf,False
+257,European Curling Championships 2013 B-Division,2013,"Stavanger, Norway",m,ECC2013_ResultsBook_Men_B-Division.pdf,False
+258,European Curling Championships 2013 B-Division,2013,"Stavanger, Norway",w,ECC2013_ResultsBook_Women_B-Division.pdf,False
+259,World Junior Curling Championships 2013,2013,"Sochi, Russia",,WJCC2013_ResultsBook.pdf,False
+260,World Wheelchair Curling Championship 2013,2013,"Sochi, Russia",,WWhCC2013_ResultsBook.pdf,False
