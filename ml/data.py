@@ -12,7 +12,6 @@ Responsibilities
 from __future__ import annotations
 
 import re
-from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
@@ -101,7 +100,6 @@ def load_and_preprocess(cfg: PipelineConfig) -> pd.DataFrame:
     Returns a DataFrame with one row per shot, augmented with end-score
     labels, metadata, and S_{t-1} index pointers.
     """
-    base = Path(cfg.shots_path).parent.parent if "/" in cfg.shots_path else Path(".")
     shots = pd.read_parquet(cfg.shots_path)
     ends = pd.read_csv(cfg.ends_path)
     events = pd.read_csv(cfg.events_path)

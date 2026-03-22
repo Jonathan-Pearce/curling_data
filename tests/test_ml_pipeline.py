@@ -49,6 +49,8 @@ class TestConfig:
     def test_turn_classes(self):
         assert len(TURN_CLASSES) == 3
         assert "Clockwise" in TURN_CLASSES
+        assert "Counter-clockwise" in TURN_CLASSES
+        assert "Not considered" in TURN_CLASSES
 
 
 # ─── Data helper tests ───────────────────────────────────────────────────────
