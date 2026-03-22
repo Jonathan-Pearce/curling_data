@@ -1,15 +1,15 @@
 """Tests for generate_board_image module."""
 
 import os
-import csv
 import math
 
+import pandas as pd
 import pytest
 from PIL import Image
 
 from generate_board_image import (
     generate_board_image,
-    generate_board_image_from_csv,
+    generate_board_image_from_parquet,
     _extract_stones,
     _norm_to_pixel,
     _norm_radius_to_pixels,
@@ -162,59 +162,69 @@ class TestGenerateBoardImage:
 
 
 # ---------------------------------------------------------------------------
-# CSV lookup tests
+# Parquet lookup tests
 # ---------------------------------------------------------------------------
 
-class TestGenerateBoardImageFromCsv:
+def _make_parquet(tmp_path, rows):
+    """Helper: write a list of dicts to a parquet file and return its path."""
+    stone_cols = []
+    for ti in (1, 2):
+        for si in range(1, MAX_STONES_PER_TEAM + 1):
+            prefix = f"team{ti}_stone{si}"
+            stone_cols += [f"{prefix}_x", f"{prefix}_y",
+                           f"{prefix}_dist", f"{prefix}_angle"]
+    base_cols = [
+        "event_id", "match_id", "end_number", "shot_number",
+        "team_code", "player_id", "player_name",
+        "shot_type", "turn", "accuracy",
+        "team1_stones_in_play", "team2_stones_in_play",
+        "house_orientation",
+    ]
+    all_cols = base_cols + stone_cols
+    df = pd.DataFrame(rows, columns=all_cols)
+    path = str(tmp_path / "shots.parquet")
+    df.to_parquet(path, index=False)
+    return path
+
+
+class TestGenerateBoardImageFromParquet:
     def test_valid_lookup(self, tmp_path):
-        csv_path = str(tmp_path / "shots.csv")
-        fieldnames = [
-            "event_id", "match_id", "end_number", "shot_number",
-            "team_code", "player_id", "player_name",
-            "shot_type", "turn", "accuracy",
-            "team1_stones_in_play", "team2_stones_in_play",
-        ]
-        for ti in (1, 2):
-            for si in range(1, MAX_STONES_PER_TEAM + 1):
-                prefix = f"team{ti}_stone{si}"
-                fieldnames += [f"{prefix}_x", f"{prefix}_y",
-                               f"{prefix}_dist", f"{prefix}_angle"]
-
-        with open(csv_path, "w", newline="") as f:
-            writer = csv.DictWriter(f, fieldnames=fieldnames)
-            writer.writeheader()
-            row = {fn: "" for fn in fieldnames}
-            row.update({
-                "event_id": "1", "match_id": "2",
-                "end_number": "3", "shot_number": "4",
-                "team1_stone1_x": "0.1", "team1_stone1_y": "0.2",
-                "team2_stone1_x": "-0.3", "team2_stone1_y": "0.5",
-            })
-            writer.writerow(row)
-
-        img = generate_board_image_from_csv(csv_path, 1, 2, 3, 4)
+        row = {
+            "event_id": 1, "match_id": 2, "end_number": 3, "shot_number": 4,
+            "team_code": "CAN", "player_id": "", "player_name": "",
+            "shot_type": "Draw", "turn": "In-turn", "accuracy": 75,
+            "team1_stones_in_play": 1, "team2_stones_in_play": 1,
+            "house_orientation": "top",
+            "team1_stone1_x": 0.1, "team1_stone1_y": 0.2,
+            "team2_stone1_x": -0.3, "team2_stone1_y": 0.5,
+        }
+        parquet_path = _make_parquet(tmp_path, [row])
+        img = generate_board_image_from_parquet(parquet_path, 1, 2, 3, 4)
         assert isinstance(img, Image.Image)
 
     def test_missing_row_raises(self, tmp_path):
-        csv_path = str(tmp_path / "shots.csv")
-        with open(csv_path, "w", newline="") as f:
-            writer = csv.DictWriter(
-                f, fieldnames=["event_id", "match_id", "end_number",
-                               "shot_number"],
-            )
-            writer.writeheader()
-            writer.writerow({
-                "event_id": "1", "match_id": "1",
-                "end_number": "1", "shot_number": "1",
-            })
-
+        row = {"event_id": 1, "match_id": 1, "end_number": 1, "shot_number": 1}
+        parquet_path = _make_parquet(tmp_path, [row])
         with pytest.raises(ValueError, match="No shot found"):
-            generate_board_image_from_csv(csv_path, 9, 9, 9, 9)
+            generate_board_image_from_parquet(parquet_path, 9, 9, 9, 9)
 
-    def test_with_actual_csv(self):
-        csv_path = os.path.join("output", "shot_locations.csv")
-        if not os.path.isfile(csv_path):
-            pytest.skip("shot_locations.csv not present")
-        img = generate_board_image_from_csv(csv_path, 1, 1, 1, 5)
+    def test_nan_stone_positions_ignored(self, tmp_path):
+        """NaN stone positions (empty slots) must not appear on the board."""
+        import math as _math
+        row = {
+            "event_id": 1, "match_id": 1, "end_number": 1, "shot_number": 1,
+            "team1_stones_in_play": 1, "team2_stones_in_play": 0,
+            "team1_stone1_x": 0.0, "team1_stone1_y": 0.0,
+            "team1_stone2_x": float("nan"), "team1_stone2_y": float("nan"),
+        }
+        parquet_path = _make_parquet(tmp_path, [row])
+        img = generate_board_image_from_parquet(parquet_path, 1, 1, 1, 1)
+        assert isinstance(img, Image.Image)
+
+    def test_with_actual_parquet(self):
+        parquet_path = os.path.join("output", "shot_locations.parquet")
+        if not os.path.isfile(parquet_path):
+            pytest.skip("shot_locations.parquet not present")
+        img = generate_board_image_from_parquet(parquet_path, 1, 1, 1, 5)
         assert isinstance(img, Image.Image)
         assert img.size == (IMAGE_WIDTH, IMAGE_HEIGHT)

@@ -71,19 +71,19 @@ Recreate curling board images from the scraped data for data quality verificatio
 Generate a board image for a specific shot:
 
 ```bash
-python generate_board_image.py --csv output/shot_locations.csv --event 1 --match 1 --end 7 --shot 12 -o board.png
+python generate_board_image.py --event 1 --match 1 --end 7 --shot 12 -o board.png
 ```
 
 The function can also be used programmatically:
 
 ```python
-from generate_board_image import generate_board_image, generate_board_image_from_csv
+from generate_board_image import generate_board_image, generate_board_image_from_parquet
 
-# From a CSV file
-img = generate_board_image_from_csv("output/shot_locations.csv", event_id=1, match_id=1, end_number=7, shot_number=12)
+# From the parquet file
+img = generate_board_image_from_parquet("output/shot_locations.parquet", event_id=1, match_id=1, end_number=7, shot_number=12)
 img.save("board.png")
 
-# From a shot data dict (e.g. a row from shot_locations.csv)
+# From a shot data dict (e.g. a row from shot_locations.parquet)
 img = generate_board_image(shot_data)
 img.show()
 ```

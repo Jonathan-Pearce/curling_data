@@ -5,13 +5,13 @@ Recreates single-shot board diagrams for data quality verification
 by comparing reconstructed images to the original scraped data.
 
 Usage:
-    python generate_board_image.py --csv output/shot_locations.csv \
-        --event 1 --match 1 --end 1 --shot 5 -o board.png
+    python generate_board_image.py --event 1 --match 1 --end 1 --shot 5 -o board.png
 """
 
 import argparse
-import csv
 import math
+
+import pandas as pd
 
 from PIL import Image, ImageDraw
 
@@ -250,14 +250,14 @@ def generate_board_image(shot_data, image_width=IMAGE_WIDTH,
     return img
 
 
-def generate_board_image_from_csv(csv_path, event_id, match_id, end_number,
-                                  shot_number):
-    """Look up a specific shot in *csv_path* and generate a board image.
+def generate_board_image_from_parquet(parquet_path, event_id, match_id,
+                                      end_number, shot_number):
+    """Look up a specific shot in *parquet_path* and generate a board image.
 
     Parameters
     ----------
-    csv_path : str
-        Path to ``shot_locations.csv``.
+    parquet_path : str
+        Path to ``shot_locations.parquet``.
     event_id, match_id, end_number, shot_number : int or str
         Identifiers for the shot to render.
 
@@ -271,24 +271,32 @@ def generate_board_image_from_csv(csv_path, event_id, match_id, end_number,
     ValueError
         If no matching row is found.
     """
-    event_id = str(event_id)
-    match_id = str(match_id)
-    end_number = str(end_number)
-    shot_number = str(shot_number)
+    event_id = int(event_id)
+    match_id = int(match_id)
+    end_number = int(end_number)
+    shot_number = int(shot_number)
 
-    with open(csv_path, newline="", encoding="utf-8") as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            if (row["event_id"] == event_id
-                    and row["match_id"] == match_id
-                    and row["end_number"] == end_number
-                    and row["shot_number"] == shot_number):
-                return generate_board_image(row)
-
-    raise ValueError(
-        f"No shot found for event_id={event_id}, match_id={match_id}, "
-        f"end_number={end_number}, shot_number={shot_number}"
+    df = pd.read_parquet(parquet_path)
+    mask = (
+        (df["event_id"] == event_id)
+        & (df["match_id"] == match_id)
+        & (df["end_number"] == end_number)
+        & (df["shot_number"] == shot_number)
     )
+    matches = df[mask]
+    if matches.empty:
+        raise ValueError(
+            f"No shot found for event_id={event_id}, match_id={match_id}, "
+            f"end_number={end_number}, shot_number={shot_number}"
+        )
+
+    # Convert to plain dict; replace NaN/None with "" so _extract_stones
+    # can use its existing `!= ""` guard.
+    row = {
+        k: ("" if (v is None or (isinstance(v, float) and math.isnan(v))) else v)
+        for k, v in matches.iloc[0].to_dict().items()
+    }
+    return generate_board_image(row)
 
 
 # ---------------------------------------------------------------------------
@@ -300,8 +308,8 @@ def main():
         description="Generate a curling board image from shot location data."
     )
     parser.add_argument(
-        "--csv", default="output/shot_locations.csv",
-        help="Path to shot_locations.csv (default: output/shot_locations.csv)",
+        "--parquet", default="output/shot_locations.parquet",
+        help="Path to shot_locations.parquet (default: output/shot_locations.parquet)",
     )
     parser.add_argument("--event", required=True, help="Event ID")
     parser.add_argument("--match", required=True, help="Match ID")
@@ -313,8 +321,8 @@ def main():
     )
     args = parser.parse_args()
 
-    img = generate_board_image_from_csv(
-        args.csv, args.event, args.match, args.end, args.shot,
+    img = generate_board_image_from_parquet(
+        args.parquet, args.event, args.match, args.end, args.shot,
     )
     img.save(args.output)
     print(f"Board image saved to {args.output}")
