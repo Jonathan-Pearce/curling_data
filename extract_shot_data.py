@@ -346,6 +346,13 @@ def _extract_shot_metadata_from_words(words, shot_images):
                 else:
                     shot["shot_type"] = text
 
+    # Penalty "Through" shots (hog-line violation, FGZ violation, burned
+    # stone, etc.) are removed from play — the PDF has no turn indicator for
+    # them.  "Not considered" is the correct semantic value.
+    for shot in shots:
+        if not shot["turn"] and shot["shot_type"].startswith("Through"):
+            shot["turn"] = "Not considered"
+
     return shots
 
 
@@ -817,6 +824,15 @@ def extract_all(pdf_paths, output_dir="output", event_metadata=None):
             row["player_id"] = local_to_global.get((eid, tc, pn), row["player_id"])
 
     # ---- Write CSVs --------------------------------------------------------
+    # Derive has_time_data flag per event from ends data
+    events_with_time = set(
+        row["event_id"]
+        for row in all_ends
+        if row.get("team1_time_left") or row.get("team2_time_left")
+    )
+    for event_row in events_rows:
+        event_row["has_time_data"] = event_row["event_id"] in events_with_time
+
     _write_events_csv(os.path.join(output_dir, "events.csv"), events_rows)
     _write_matches_csv(os.path.join(output_dir, "matches.csv"), all_matches)
     _write_teams_csv(os.path.join(output_dir, "teams.csv"), all_teams_dict)
@@ -836,7 +852,7 @@ def extract_all(pdf_paths, output_dir="output", event_metadata=None):
 # ---------------------------------------------------------------------------
 
 def _write_events_csv(path, rows):
-    fields = ["event_id", "event_name", "year", "location", "gender", "pdf_file"]
+    fields = ["event_id", "event_name", "year", "location", "gender", "pdf_file", "has_time_data"]
     _write_csv(path, fields, rows)
 
 
