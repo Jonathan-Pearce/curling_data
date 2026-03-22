@@ -72,6 +72,14 @@ YELLOW_UPPER = np.array([35, 255, 255])
 STONE_MIN_AREA = 80
 STONE_MAX_AREA = 600
 
+# Minimum ratio of colored pixels to contour area for a detected blob to be
+# accepted as a filled stone.  A solid disc has ratio ≈ 1.0.  Outline-only
+# "ghost" markers (showing where a stone was before the shot) appear as an
+# annular ring; cv2.contourArea() on the outer boundary returns approximately
+# the full disc area while the actual colored pixels are only the ring,
+# giving a ratio well below this threshold.
+STONE_MIN_FILL_RATIO = 0.45
+
 # HSV colour range for the 12-foot ring (blue/lilac) used to detect the
 # house centre position and image orientation.  The ring colour in the PDF
 # is approximately RGB (170, 170, 230) → HSV H≈120, S≈66, V≈230.
@@ -434,6 +442,14 @@ def _detect_stones_in_crop(crop_bgr):
         for c in contours:
             area = cv2.contourArea(c)
             if STONE_MIN_AREA < area < STONE_MAX_AREA:
+                # Reject outline-only "ghost" markers.  Count actual colored
+                # pixels in the contour's bounding rect and compare to the
+                # contour area.  Filled stones have ratio ≈ 1.0; outline rings
+                # have ratio << STONE_MIN_FILL_RATIO.
+                x, y, w_c, h_c = cv2.boundingRect(c)
+                colored_pixels = cv2.countNonZero(mask[y:y + h_c, x:x + w_c])
+                if colored_pixels / area < STONE_MIN_FILL_RATIO:
+                    continue
                 M = cv2.moments(c)
                 if M["m00"] > 0:
                     sx = M["m10"] / M["m00"]
