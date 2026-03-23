@@ -102,9 +102,9 @@ MAX_STONES_PER_TEAM = 8
 # Maximum Euclidean distance (normalised to house-radius units) within which
 # two stone detections — in consecutive shot diagrams of the same end — are
 # considered the same physical stone.  Rendering noise produces position
-# jitter of ±0.01–0.03 units; genuine displacement by a hit travels >> 0.10
+# jitter of ±0.01–0.03 units; genuine displacement by a hit travels >> 0.13
 # units, so this threshold cleanly separates noise from true movement.
-STONE_TRACK_MAX_DIST = 0.10
+STONE_TRACK_MAX_DIST = 0.13
 
 # ---------------------------------------------------------------------------
 # URL / PDF helpers

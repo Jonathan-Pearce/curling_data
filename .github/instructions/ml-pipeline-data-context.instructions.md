@@ -60,7 +60,7 @@ NULL entries beyond `team{N}_stones_in_play` are empty cells, not zeroes.
 
 **Colour-to-team mapping**: team1 = red stones, team2 = yellow stones. This is hardcoded in the scraper; the mapping is consistent across all events in the current dataset.
 
-**Stone ID tracking:** `stone_id` values are assigned by a greedy nearest-neighbour matcher (`STONE_TRACK_MAX_DIST = 0.10` normalised units). A stone not matched to any previous stone (new placement or displacement beyond threshold) receives a fresh ID. IDs are scoped to a single end and shared across both teams, so team1 and team2 IDs within the same end are always distinct. **Shot 1 of every end** has `prev_x = NULL` for all stones (no prior state). Use `shot_number == 1` as the sentinel for the end boundary.
+**Stone ID tracking:** `stone_id` values are assigned by a greedy nearest-neighbour matcher (`STONE_TRACK_MAX_DIST = 0.13` normalised units). A stone not matched to any previous stone (new placement or displacement beyond threshold) receives a fresh ID. IDs are scoped to a single end and shared across both teams, so team1 and team2 IDs within the same end are always distinct. **Shot 1 of every end** has `prev_x = NULL` for all stones (no prior state). Use `shot_number == 1` as the sentinel for the end boundary.
 
 The displacement vector for a stone that stayed in play is:
 ```python

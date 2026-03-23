@@ -109,9 +109,11 @@ rate is therefore well above 80%. The check flags if the rate falls below 50%.
 | < 50% | Likely problem — tracking is not working for most stones |
 
 **If the rate is low:**
-- Increase `STONE_TRACK_MAX_DIST` from `0.10` to `0.13` and re-scrape a sample event.
-- Check that the normalised coordinate system hasn't changed between scrape runs
+- The current threshold is already `0.13`. If the rate is still low, check that the
+  normalised coordinate system hasn't changed between scrape runs
   (e.g. `HOUSE_RADIUS` constant should not have changed).
+- If the rate is below 60%, consider raising to `0.15`, but check Check 6/7 carefully
+  to ensure the wider window isn't mis-matching adjacent stones.
 
 **Expected result:** `PASS (match rate > 50%)`
 
@@ -183,12 +185,12 @@ noise). Values in 0.01–0.05 are acceptable. Values above 0.05 indicate either:
    matcher connected it to a nearby stone that should have been treated as removed.
 2. The render DPI changed between scrapes, shifting all coordinates slightly.
 
-**What counts > 0.10 mean:**
-A stone was matched despite being more than 10% of the house radius away from its
-previous position. This should not occur because `STONE_TRACK_MAX_DIST = 0.10` is
+**What counts > 0.13 mean:**
+A stone was matched despite being more than 13% of the house radius away from its
+previous position. This should not occur because `STONE_TRACK_MAX_DIST = 0.13` is
 the hard matching cutoff. If you see counts here, the threshold constant in the
 parquet file was different from `STONE_TRACK_MAX_DIST` in this script — check that
-both are `0.10`.
+both are `0.13`.
 
 **Expected result:** `PASS` with histogram heavily skewed toward 0–0.01
 
@@ -231,20 +233,20 @@ RESULT: PASS — tracking appears consistent.
 
 ## Threshold Tuning Reference
 
-The key constant `STONE_TRACK_MAX_DIST = 0.10` (in `extract_shot_data.py`) controls
+The key constant `STONE_TRACK_MAX_DIST = 0.13` (in `extract_shot_data.py`) controls
 the matching distance. If checks suggest it needs adjusting:
 
 | Symptom | Adjustment |
 |---|---|
-| Check 3 match rate is low (< 70%) | Increase to `0.13` |
-| Check 5 many reappearances | Increase to `0.13` |
-| Check 6 counts in `> 0.10` bin | Investigate — should not happen if code and script agree |
+| Check 3 match rate is low (< 70%) | Raise to `0.15`; re-check Check 6/7 for new mis-matches |
+| Check 5 many reappearances | Raise to `0.15` |
+| Check 6 counts in `> 0.13` bin | Investigate — should not happen if code and script agree |
 | Check 7 many `> 1 new stone` shots | May indicate stones lost to crop edge; consider adjusting `STONE_Y_MAX_FRAC` |
 
 Physical reference: 1 normalised unit = `HOUSE_RADIUS` = 6 feet. So:
 - `0.10` ≈ 7.2 inches — comfortable above stone-detection jitter
-- `0.13` ≈ 9.4 inches — approaches the radius of a real stone (≈ 5.6 inches radius)
-  so going above this risks confusing adjacent stones
+- `0.13` ≈ 9.4 inches — current value (approaches the radius of a real stone ≈ 5.6 inches)
+- `0.15` ≈ 10.8 inches — upper safe limit before adjacent-stone confusion becomes likely
 
 ---
 

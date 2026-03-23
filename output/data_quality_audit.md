@@ -343,7 +343,7 @@ A new function `_match_stones_to_state()` was added to `extract_shot_data.py`. W
 each end, it maintains a tracking state (list of `(stone_id, x, y)`) that is carried
 forward from one shot to the next. After each shot's detections are obtained, a greedy
 nearest-neighbour assignment (sorted by ascending pair distance) matches current
-detections to the prior state. Any stone within `STONE_TRACK_MAX_DIST = 0.10`
+detections to the prior state. Any stone within `STONE_TRACK_MAX_DIST = 0.13`
 normalised units of its previous position is considered the same physical stone and
 retains its ID. Unmatched stones (newly placed or displaced beyond the threshold)
 receive a fresh ID from a per-end counter.
@@ -364,15 +364,15 @@ shot of an end has no prior state.
 
 #### Distance threshold tuning
 
-`STONE_TRACK_MAX_DIST = 0.10` (10% of the 12-foot ring radius) was chosen to be
+`STONE_TRACK_MAX_DIST = 0.13` (13% of the 12-foot ring radius) was tuned to be
 decisively above the expected rendering noise (±0.01–0.03 units) while being well
 below the minimum displacement from any realistic hit. Physical stone diameter is
 approximately 0.19 normalised units; two stones cannot occupy positions closer than
 this, so intra-team confusion is geometrically impossible within the noise band.
 
 If re-scraping reveals legitimate stationary stones being dropped (matched[0] → NULL),
-lower the threshold toward `0.07`. If fast-moving stones near the house edge are being
-mis-matched, raise it toward `0.13`.
+raise the threshold slightly (e.g. `0.15`). If fast-moving stones near the house edge
+are being mis-matched, lower it toward `0.10`.
 
 ---
 

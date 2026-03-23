@@ -23,7 +23,7 @@ Checks performed
     subsequent shots of the same end until the stone leaves play.  It never
     reappears after being absent.
 6.  Matched-stone displacement — the distance from (prev_x, prev_y) to (x, y) for
-    matched stones is << STONE_TRACK_MAX_DIST (0.10). Distances above 0.05 are
+    matched stones is << STONE_TRACK_MAX_DIST (0.13). Distances above 0.05 are
     flagged as suspicious rendering noise.
 7.  New-stone count — on each shot the number of stones with NULL prev is ≤ 2 (at
     most one per team), and approximately one per team on shots where a stone was
@@ -46,7 +46,7 @@ import pandas as pd
 # Constants (mirrors extract_shot_data.py)
 # ---------------------------------------------------------------------------
 MAX_STONES_PER_TEAM = 8
-STONE_TRACK_MAX_DIST = 0.10   # matching threshold used during scraping
+STONE_TRACK_MAX_DIST = 0.13   # matching threshold used during scraping
 NOISE_WARN_DIST = 0.05        # displacement above this is flagged as suspicious
 
 STONE_COLS_PER_TEAM = ["x", "y", "dist", "angle", "id", "prev_x", "prev_y"]
@@ -531,9 +531,10 @@ def run_checks(parquet_path: str,
 
     print(f"\n  Displacement distribution (matched stones, shot > 1):")
     if not detail_df.empty:
-        bins = [0, 0.01, 0.02, 0.03, 0.05, 0.10, float("inf")]
+        bins = [0, 0.01, 0.02, 0.03, 0.05, STONE_TRACK_MAX_DIST, float("inf")]
         labels = ["0–0.01", "0.01–0.02", "0.02–0.03", "0.03–0.05",
-                  "0.05–0.10", ">0.10 (SUSPICIOUS)"]
+                  f"0.05–{STONE_TRACK_MAX_DIST:.2f}",
+                  f">{STONE_TRACK_MAX_DIST:.2f} (SUSPICIOUS)"]
         hist = pd.cut(detail_df["displacement"], bins=bins, labels=labels,
                       right=False).value_counts().sort_index()
         max_count = hist.max()
