@@ -30,6 +30,9 @@ from extract_shot_data import (
     DEFAULT_PDF_URLS,
     DEFAULT_MIN_YEAR,
     STONE_TRACK_MAX_DIST,
+    HOUSE_CX,
+    HOUSE_CY,
+    HOUSE_RADIUS,
 )
 
 PDF_URL = "https://curlit.com/PDF/ECC2025_ResultsBook_Men_A-Division.pdf"
@@ -964,3 +967,29 @@ class TestRunCalibrationDiagnostic:
         captured = capsys.readouterr()
         assert "Calibration summary" in captured.out
         assert "fake_event" in captured.out
+
+
+class TestDetectHouseCenterFallback:
+    """Unit tests for _detect_house_center fallback behavior."""
+
+    def test_hough_circle_fallback_used_when_ring_colour_missing(self):
+        """Grayscale rings should be detected by circle fallback without warning."""
+        import numpy as np
+        import cv2
+        import extract_shot_data as esd
+
+        h = 644
+        w = 323
+        crop = np.full((h, w, 3), 255, dtype=np.uint8)
+
+        # Draw a grayscale ring that is outside the blue HSV mask ranges.
+        cv2.circle(crop, (HOUSE_CX, HOUSE_CY), HOUSE_RADIUS + 16, (180, 180, 180), 4)
+
+        with patch("builtins.print") as mock_print:
+            cx, cy, radius, orientation = esd._detect_house_center(crop)
+
+        assert abs(cx - HOUSE_CX) < 8
+        assert abs(cy - HOUSE_CY) < 8
+        assert HOUSE_RADIUS * 0.75 <= radius <= HOUSE_RADIUS * 1.25
+        assert orientation == "top"
+        assert mock_print.call_count == 0
