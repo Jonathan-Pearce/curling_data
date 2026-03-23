@@ -28,25 +28,44 @@ pip install -r requirements.txt
 
 ```
 curling_data/
-├── output/                    # Generated CSV data tables
+├── output/                         # Generated data tables
+│   ├── result_urls.csv             # Tournament PDF URL index
 │   ├── events.csv
 │   ├── matches.csv
 │   ├── teams.csv
 │   ├── players.csv
 │   ├── ends.csv
-│   └── shot_locations.csv
+│   ├── shot_locations.csv
+│   └── shot_locations.parquet
 ├── tests/
 │   ├── test_extract_shot_data.py
-│   └── test_generate_board_image.py
-├── extract_shot_data.py       # Main extraction script
-├── generate_board_image.py    # Board image generation for data QA
+│   ├── test_generate_board_image.py
+│   ├── test_scrape_results.py
+│   └── test_verify_stone_tracking.py
+├── example raw data/               # Sample PDFs used by integration tests
+├── agent_notes/                    # Development notes and data quality audits
+├── investigations/                 # Exploratory analysis notebooks
+├── extract_shot_data.py            # Main extraction script
+├── scrape_results.py               # Scrapes curlit.com for tournament PDF URLs
+├── generate_board_image.py         # Board image generation for data QA
+├── verify_stone_tracking.py        # Post-scrape stone tracking validation
 ├── requirements.txt
 └── README.md
 ```
 
+## Scraping Tournament URLs
+
+Before running the main extraction, scrape curlit.com to build the index of all available result-book PDFs:
+
+```bash
+python scrape_results.py
+```
+
+This writes `output/result_urls.csv` with columns: `tournament_name`, `year`, `location`, `result_book_url`, `gender`, `result_summary_url`. Gender codes: `m`, `w`, `mx`, `mxd`.
+
 ## Usage
 
-Process the default PDFs (fetched from curlit.com):
+Process all PDFs in `output/result_urls.csv` (the default bulk mode — run `scrape_results.py` first):
 
 ```bash
 python extract_shot_data.py
@@ -63,6 +82,28 @@ Process multiple PDFs (local paths and/or URLs):
 ```bash
 python extract_shot_data.py https://curlit.com/PDF/ECC2025_ResultsBook_Men_A-Division.pdf https://curlit.com/PDF/WMCC2023_ResultsBook.pdf --output-dir output
 ```
+
+## Verifying Stone Tracking
+
+After a scrape run, validate that the sequential stone-tracking data is internally consistent:
+
+```bash
+python verify_stone_tracking.py output/shot_locations.parquet
+```
+
+Filter to a specific event or match:
+
+```bash
+python verify_stone_tracking.py output/shot_locations.parquet --event 1 --match 2
+```
+
+Generate displacement-arrow board images for manual comparison against the original PDFs:
+
+```bash
+python verify_stone_tracking.py output/shot_locations.parquet --visualise --output-dir verify_out
+```
+
+The script runs 7 automated checks covering schema presence, first-shot invariants, stone ID uniqueness and continuity, displacement plausibility, and new-stone counts per shot.
 
 ## Board Image Generation
 
@@ -97,7 +138,11 @@ The script produces six CSV files in the output directory:
 |--------|-------------|
 | event_id | Unique event identifier |
 | event_name | Name derived from the PDF filename |
+| year | Year of the event |
+| location | Location of the event |
+| gender | Gender category (`m`, `w`, `mx`, `mxd`) |
 | pdf_file | Source PDF filename |
+| has_time_data | `True` if thinking-time data is present in the PDF for this event |
 
 ### `matches.csv`
 | Column | Description |
@@ -154,15 +199,24 @@ The script produces six CSV files in the output directory:
 | shot_type | Shot type (e.g., Draw, Take-out, Guard, Hit and Roll) |
 | turn | Turn direction (Clockwise, Counter-clockwise, Not considered) |
 | accuracy | Shot accuracy percentage |
+| house_orientation | Page orientation used for this shot image (`normal` or `flipped`) |
 | team1_stones_in_play | Number of team 1 stones in play after this shot |
 | team2_stones_in_play | Number of team 2 stones in play after this shot |
 | team1_stone1_x … team1_stone8_x | Normalised x-coordinate for each team 1 stone |
 | team1_stone1_y … team1_stone8_y | Normalised y-coordinate for each team 1 stone |
 | team1_stone1_dist … team1_stone8_dist | Distance from house centre (1.0 = 12-foot ring) |
 | team1_stone1_angle … team1_stone8_angle | Angle in degrees from house centre |
-| team2_stone1_x … team2_stone8_x | Same columns for team 2 stones |
+| team1_stone1_id … team1_stone8_id | Stable integer ID tracking each stone across all shots in an end |
+| team1_stone1_prev_x … team1_stone8_prev_x | x-coordinate of this stone on the previous shot (NULL if newly placed) |
+| team1_stone1_prev_y … team1_stone8_prev_y | y-coordinate of this stone on the previous shot (NULL if newly placed) |
+| team2_stone1_x … team2_stone8_x | Same position columns for team 2 stones |
+| team2_stone1_id … team2_stone8_id | Same tracking ID columns for team 2 stones |
+| team2_stone1_prev_x … team2_stone8_prev_x | Same previous-position columns for team 2 stones |
+| team2_stone1_prev_y … team2_stone8_prev_y | Same previous-position columns for team 2 stones |
 
 Stone positions are normalised so the 12-foot ring has radius 1.0. Stones are ordered ascending by distance from the button (house centre). Empty values indicate the stone is not in play.
+
+Stone tracking: each stone receives a stable `_id` integer at the start of an end that persists across every subsequent shot. `_prev_x` / `_prev_y` record where that stone was on the prior shot, enabling displacement analysis and trajectory reconstruction.
 
 ## Coordinate System
 
