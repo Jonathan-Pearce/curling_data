@@ -494,6 +494,11 @@ def _detect_house_center(crop_bgr):
     2. A broader fallback ``HOUSE_RING_LOWER_BROAD / HOUSE_RING_UPPER_BROAD``
        that is less sensitive to white-balance or print-colour variation.
 
+    If both colour-mask attempts fail, a grayscale circle detector
+    (``cv2.HoughCircles``) is used as a secondary fallback.  This handles
+    event PDFs where the house rings are rendered in grayscale instead of the
+    usual blue/lilac.
+
     Returns
     -------
     tuple (cx, cy, radius, orientation)
@@ -503,8 +508,9 @@ def _detect_house_center(crop_bgr):
         improvement #1: derived from the median distance of detected ring
         pixels to the centroid rather than the fixed ``HOUSE_RADIUS`` constant).
         ``orientation`` is ``'top'`` or ``'bottom'``.
-        Falls back to ``(HOUSE_CX, HOUSE_CY, HOUSE_RADIUS, 'top')`` when
-        both detection attempts fail (improvement #2: logs a warning).
+        Falls back to ``(HOUSE_CX, HOUSE_CY, HOUSE_RADIUS, 'top')`` only when
+        both colour-mask and circle-detection fallbacks fail (improvement #2:
+        logs a warning).
     """
     h, w = crop_bgr.shape[:2]
     hsv = cv2.cvtColor(crop_bgr, cv2.COLOR_BGR2HSV)
@@ -522,7 +528,41 @@ def _detect_house_center(crop_bgr):
             break
 
     if ring_mask is None:
-        # Both detection attempts failed – log a warning and fall back.
+        # Colour-mask detection failed; try a grayscale circle detector as a
+        # secondary fallback for events that render rings without blue colour.
+        gray = cv2.cvtColor(crop_bgr, cv2.COLOR_BGR2GRAY)
+        gray = cv2.medianBlur(gray, 5)
+        circles = cv2.HoughCircles(
+            gray,
+            cv2.HOUGH_GRADIENT,
+            dp=1.2,
+            minDist=max(40, h // 8),
+            param1=100,
+            param2=30,
+            minRadius=int(HOUSE_RADIUS * 0.6),
+            maxRadius=int(HOUSE_RADIUS * 1.4),
+        )
+        if circles is not None and len(circles[0]) > 0:
+            circle_candidates = np.asarray(circles[0], dtype=float)
+
+            # Choose the candidate closest to nominal radius and to either the
+            # expected top-house position or its vertical mirror (bottom-house).
+            top_y = HOUSE_CY
+            bottom_y = h - HOUSE_CY
+
+            def _score(c):
+                cx_c, cy_c, r_c = c
+                dy = min(abs(cy_c - top_y), abs(cy_c - bottom_y))
+                return abs(r_c - HOUSE_RADIUS) + 0.25 * abs(cx_c - HOUSE_CX) + 0.25 * dy
+
+            cx, cy, detected_radius = min(circle_candidates, key=_score)
+            if not (HOUSE_RADIUS * 0.75 <= detected_radius <= HOUSE_RADIUS * 1.25):
+                detected_radius = HOUSE_RADIUS
+            orientation = "top" if cy <= h / 2 else "bottom"
+            return float(cx), float(cy), float(detected_radius), orientation
+
+        # Both colour-mask and circle detection failed – log a warning and
+        # fall back to fixed calibration constants.
         print(
             "WARNING: house ring detection failed for a crop; "
             "stone coordinates may be inaccurate (using calibrated fallback)."
