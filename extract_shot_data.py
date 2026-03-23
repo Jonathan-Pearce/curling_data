@@ -23,6 +23,7 @@ Outputs CSV files:
 """
 
 import argparse
+import collections
 import csv
 import io
 import math
@@ -86,6 +87,19 @@ STONE_MIN_FILL_RATIO = 0.45
 HOUSE_RING_LOWER = np.array([100, 25, 140])  # HSV lower bound
 HOUSE_RING_UPPER = np.array([140, 160, 255])  # HSV upper bound
 HOUSE_RING_MIN_AREA = 1500  # minimum blue pixels required to trust detection
+
+# Broader fallback HSV range for 12-foot ring detection when the primary narrow
+# range collects insufficient pixels (e.g. low-saturation or differently-coloured
+# event PDFs).  Tried automatically before falling back to fixed constants.
+HOUSE_RING_LOWER_BROAD = np.array([80, 15, 100])   # HSV lower bound (broad)
+HOUSE_RING_UPPER_BROAD = np.array([160, 180, 255])  # HSV upper bound (broad)
+
+# Per-page stone colour calibration settings (improvement #3).
+# When a team indicator image is found on the page, its dominant HSV hue is
+# used as the centre of a detection window of this half-width.
+STONE_COLOR_HUE_TOL = 12      # hue half-window (OpenCV 0-180 scale)
+STONE_COLOR_CAL_SAT_MIN = 60  # minimum saturation to include in indicator sample
+STONE_COLOR_CAL_VAL_MIN = 60  # minimum value (brightness) for indicator sample
 
 # Vertical pixel margins for stone detection (exclude score-indicator dots
 # at the very top and shot-label text at the bottom of each crop).
@@ -163,13 +177,100 @@ def find_shot_pages(pdf):
     return pages
 
 
+def _keep_regular_columns(images, n):
+    """Select *n* images from *images* (sorted ascending by ``x0``) that form
+    the most evenly-spaced column layout.
+
+    When there is exactly one extra image, tries every possible single-image
+    removal and returns the subset whose column spacing has the smallest
+    variance.  Returns ``None`` when more than one extra image is present
+    (caller falls back to the original candidate list).
+    """
+    excess = len(images) - n
+    if excess <= 0:
+        return images[:n]
+    if excess > 1:
+        return None  # Too many extras; caller must fall back
+
+    best_var = float("inf")
+    best_subset = None
+    for skip in range(len(images)):
+        subset = [img for i, img in enumerate(images) if i != skip]
+        xs = [img["x0"] for img in subset]
+        if len(xs) < 2:
+            continue
+        mean_spacing = (xs[-1] - xs[0]) / (len(xs) - 1)
+        spacings = [xs[i + 1] - xs[i] for i in range(len(xs) - 1)]
+        var = sum((s - mean_spacing) ** 2 for s in spacings)
+        if var < best_var:
+            best_var = var
+            best_subset = subset
+    return best_subset
+
+
+def _filter_shot_images_by_grid(candidates):
+    """Filter candidate shot images to the expected 3-row, 6-6-4 grid layout.
+
+    Uses the two largest vertical gaps between consecutive ``top`` values to
+    split all candidates into three row groups, then validates (and optionally
+    trims) each row against its expected column count (6, 6, 4).  Returns
+    *candidates* unchanged when a clean 16-image grid cannot be recovered so
+    that the caller can fall back to the size-only result (improvement #8).
+    """
+    sorted_by_y = sorted(candidates, key=lambda img: img["top"])
+    tops = [img["top"] for img in sorted_by_y]
+
+    if len(tops) < 3:
+        return candidates
+
+    # Find the two largest vertical gaps to identify row boundaries.
+    gaps = [(tops[i + 1] - tops[i], i) for i in range(len(tops) - 1)]
+    gap_indices = sorted(
+        [g[1] for g in sorted(gaps, key=lambda g: -g[0])[:2]]
+    )
+    if len(gap_indices) < 2:
+        return candidates
+
+    split1, split2 = gap_indices
+    row_groups = [
+        sorted_by_y[: split1 + 1],
+        sorted_by_y[split1 + 1 : split2 + 1],
+        sorted_by_y[split2 + 1 :],
+    ]
+    expected_counts = [6, 6, 4]
+
+    grid_images = []
+    for row, expected in zip(row_groups, expected_counts):
+        row_sorted = sorted(row, key=lambda img: img["x0"])
+        if len(row_sorted) == expected:
+            grid_images.extend(row_sorted)
+        elif len(row_sorted) > expected:
+            kept = _keep_regular_columns(row_sorted, expected)
+            if kept is None:
+                return candidates  # Too many extras; cannot resolve safely
+            grid_images.extend(kept)
+        else:
+            return candidates  # Fewer images than expected; cannot resolve
+
+    return grid_images if len(grid_images) == 16 else candidates
+
+
 def _get_shot_images(page):
-    """Return the 16 shot-diagram image metadata objects from *page*."""
-    return [
+    """Return the 16 shot-diagram image metadata objects from *page*.
+
+    Filters candidate images by minimum size and then, when more than 16
+    candidates pass, validates the expected 3-row 6-6-4 grid layout to
+    exclude spurious images such as logos or decorative graphics that would
+    otherwise silently misalign subsequent shot assignments (improvement #8).
+    """
+    candidates = [
         img
         for img in page.images
         if img["width"] > 50 and img["height"] > 100
     ]
+    if len(candidates) > 16:
+        candidates = _filter_shot_images_by_grid(candidates)
+    return candidates
 
 
 # ---------------------------------------------------------------------------
@@ -377,7 +478,7 @@ def _extract_shot_metadata_from_words(words, shot_images):
 
 
 def _detect_house_center(crop_bgr):
-    """Detect the house centre position in a shot crop using the 12-foot ring.
+    """Detect the house centre position and 12-foot ring radius in a shot crop.
 
     The 12-foot ring has a distinctive blue/lilac colour that is isolated via
     HSV thresholding.  The centroid of all matching pixels gives the house
@@ -386,92 +487,262 @@ def _detect_house_center(crop_bgr):
     (guard zone below), ``'bottom'`` when the house is in the lower half
     (guard zone above).
 
+    Two colour ranges are tried in order:
+
+    1. The primary narrow range ``HOUSE_RING_LOWER / HOUSE_RING_UPPER``
+       (tuned for the standard blue/lilac 12-foot ring).
+    2. A broader fallback ``HOUSE_RING_LOWER_BROAD / HOUSE_RING_UPPER_BROAD``
+       that is less sensitive to white-balance or print-colour variation.
+
     Returns
     -------
-    tuple (cx, cy, orientation)
-        ``cx``, ``cy`` are the detected house centre in pixels.
+    tuple (cx, cy, radius, orientation)
+        ``cx``, ``cy`` are the sub-pixel house centre coordinates (float —
+        improvement #5: no ``int()`` truncation).
+        ``radius`` is the estimated 12-foot ring radius in pixels (float —
+        improvement #1: derived from the median distance of detected ring
+        pixels to the centroid rather than the fixed ``HOUSE_RADIUS`` constant).
         ``orientation`` is ``'top'`` or ``'bottom'``.
-        Falls back to ``(HOUSE_CX, HOUSE_CY, 'top')`` when detection fails.
+        Falls back to ``(HOUSE_CX, HOUSE_CY, HOUSE_RADIUS, 'top')`` when
+        both detection attempts fail (improvement #2: logs a warning).
     """
     h, w = crop_bgr.shape[:2]
     hsv = cv2.cvtColor(crop_bgr, cv2.COLOR_BGR2HSV)
 
-    ring_mask = cv2.inRange(hsv, HOUSE_RING_LOWER, HOUSE_RING_UPPER)
-    M = cv2.moments(ring_mask)
+    # Try primary colour range first, then the broader fallback (#2)
+    ring_mask = M = None
+    for lower, upper in [
+        (HOUSE_RING_LOWER, HOUSE_RING_UPPER),
+        (HOUSE_RING_LOWER_BROAD, HOUSE_RING_UPPER_BROAD),
+    ]:
+        candidate = cv2.inRange(hsv, lower, upper)
+        m = cv2.moments(candidate)
+        if m["m00"] >= HOUSE_RING_MIN_AREA:
+            ring_mask, M = candidate, m
+            break
 
-    if M["m00"] < HOUSE_RING_MIN_AREA:
-        # Detection failed – fall back to calibrated constants
-        return HOUSE_CX, HOUSE_CY, "top"
+    if ring_mask is None:
+        # Both detection attempts failed – log a warning and fall back.
+        print(
+            "WARNING: house ring detection failed for a crop; "
+            "stone coordinates may be inaccurate (using calibrated fallback)."
+        )
+        return HOUSE_CX, HOUSE_CY, HOUSE_RADIUS, "top"
 
-    cx = int(M["m10"] / M["m00"])
-    cy = int(M["m01"] / M["m00"])
+    # Sub-pixel centroid (improvement #5: no int() truncation)
+    cx = M["m10"] / M["m00"]
+    cy = M["m01"] / M["m00"]
+
+    # Estimate the 12-foot ring radius from the median distance of ring pixels
+    # to the detected centroid (improvement #1: dynamic radius per crop).
+    ys, xs = np.where(ring_mask > 0)
+    pixel_dists = np.hypot(xs.astype(float) - cx, ys.astype(float) - cy)
+    median_radius = float(np.median(pixel_dists))
+
+    # Sanity-check: reject implausible estimates (outside ±25 % of the
+    # calibrated constant) and fall back to the constant for that crop.
+    if HOUSE_RADIUS * 0.75 <= median_radius <= HOUSE_RADIUS * 1.25:
+        detected_radius = median_radius
+    else:
+        detected_radius = HOUSE_RADIUS
+
     orientation = "top" if cy <= h / 2 else "bottom"
-    return cx, cy, orientation
+    return cx, cy, detected_radius, orientation
 
 
-def _detect_stones_in_crop(crop_bgr):
+def _calibrate_stone_colors(page_bgr, page):
+    """Estimate per-page HSV stone-detection ranges from team indicator images.
+
+    Each shot page contains small coloured indicator images that identify which
+    team plays red stones and which plays yellow stones.  Sampling the dominant
+    hue from those indicators allows the stone-detection thresholds to
+    self-calibrate for events that render stones in slightly different shades
+    (improvement #3).
+
+    Only the yellow range is calibrated; red hue is stable across events and
+    the static dual-range constants are kept for it.  Falls back to all static
+    constants if indicator images cannot be found or sampled reliably.
+
+    Parameters
+    ----------
+    page_bgr : np.ndarray
+        Full rendered page image (BGR, 300 DPI).
+    page : pdfplumber Page
+        Corresponding pdfplumber page object (used to access ``page.images``).
+
+    Returns
+    -------
+    tuple (red_lower1, red_upper1, red_lower2, red_upper2,
+           yellow_lower, yellow_upper)
+        Per-page HSV bounds as ``np.uint8`` arrays.
+    """
+    _static = (
+        RED_LOWER_1, RED_UPPER_1, RED_LOWER_2, RED_UPPER_2,
+        YELLOW_LOWER, YELLOW_UPPER,
+    )
+
+    # Team indicator images are small roughly-square raster images embedded in
+    # the PDF (typically 20–50 PDF points wide and tall).
+    candidates = [
+        img for img in page.images
+        if 15 < img.get("width", 0) < 55
+        and 15 < img.get("height", 0) < 55
+        and abs(img.get("width", 0) - img.get("height", 0)) < 10
+    ]
+    if not candidates:
+        return _static
+
+    h_pg, w_pg = page_bgr.shape[:2]
+    yellow_hues = []
+
+    for img_meta in candidates:
+        x0 = max(0, int(img_meta["x0"] * SCALE))
+        y0 = max(0, int(img_meta["top"] * SCALE))
+        x1 = min(w_pg, int(img_meta["x1"] * SCALE))
+        y1 = min(h_pg, int(img_meta["bottom"] * SCALE))
+        if x1 <= x0 or y1 <= y0:
+            continue
+        crop = page_bgr[y0:y1, x0:x1]
+        if crop.size == 0:
+            continue
+
+        hsv_crop = cv2.cvtColor(crop, cv2.COLOR_BGR2HSV)
+        # Only sample sufficiently saturated and bright pixels.
+        colour_mask = (
+            (hsv_crop[:, :, 1] >= STONE_COLOR_CAL_SAT_MIN)
+            & (hsv_crop[:, :, 2] >= STONE_COLOR_CAL_VAL_MIN)
+        )
+        hues = hsv_crop[:, :, 0][colour_mask]
+        if len(hues) < 10:
+            continue
+
+        median_hue = float(np.median(hues))
+        # Classify: yellow/orange range H 10–50; ignore red (H ≤ 15 or ≥ 165)
+        if 10 <= median_hue <= 50:
+            yellow_hues.append(median_hue)
+
+    if not yellow_hues:
+        return _static
+
+    # Build a calibrated yellow range centred on the indicator's dominant hue.
+    y_h = float(np.mean(yellow_hues))
+    yellow_lower = np.array(
+        [max(0, int(y_h - STONE_COLOR_HUE_TOL)), int(YELLOW_LOWER[1]), int(YELLOW_LOWER[2])],
+        dtype=np.uint8,
+    )
+    yellow_upper = np.array(
+        [min(180, int(y_h + STONE_COLOR_HUE_TOL)), int(YELLOW_UPPER[1]), 255],
+        dtype=np.uint8,
+    )
+    return (
+        RED_LOWER_1, RED_UPPER_1, RED_LOWER_2, RED_UPPER_2,
+        yellow_lower, yellow_upper,
+    )
+
+
+def _detect_stones_in_crop(crop_bgr, color_ranges=None):
     """Detect red and yellow stones in a single shot crop image.
 
-    The house centre is detected dynamically via :func:`_detect_house_center`
-    so that both orientations (house at top or bottom) are handled correctly.
-    When the house is at the bottom of the crop the y-axis is flipped so that
-    positive y always points toward the hog line / delivery end.
+    The house centre and ring radius are detected dynamically via
+    :func:`_detect_house_center` so that both orientations (house at top or
+    bottom) and per-event scale variations are handled correctly.
+
+    Parameters
+    ----------
+    crop_bgr : np.ndarray
+        BGR image of a single shot diagram crop.
+    color_ranges : tuple or None
+        Optional per-page calibrated HSV bounds returned by
+        :func:`_calibrate_stone_colors` (improvement #3).  When ``None`` the
+        global static constants are used.
 
     Returns
     -------
     tuple (red_stones, yellow_stones, orientation)
         Each stone list contains ``(norm_x, norm_y, distance, angle_deg)``
         tuples sorted ascending by distance from the house centre.
-        ``orientation`` is the string returned by :func:`_detect_house_center`
-        (``'top'`` or ``'bottom'``).
+        Coordinates are normalised to ``house_radius`` units (1.0 = 12-foot
+        ring boundary) using the *dynamically detected* radius (improvement #1).
+        ``orientation`` is ``'top'`` or ``'bottom'``.
     """
     hsv = cv2.cvtColor(crop_bgr, cv2.COLOR_BGR2HSV)
     h, w = crop_bgr.shape[:2]
 
-    # Detect house centre and orientation for this crop
-    house_cx, house_cy, orientation = _detect_house_center(crop_bgr)
+    # Detect house centre, ring radius, and orientation (improvements #1, #5)
+    house_cx, house_cy, house_radius, orientation = _detect_house_center(crop_bgr)
+
+    # Scale stone area bounds to match the detected rink scale (improvement #4)
+    scale_sq = (house_radius / HOUSE_RADIUS) ** 2
+    min_area = STONE_MIN_AREA * scale_sq
+    max_area = STONE_MAX_AREA * scale_sq
 
     # Restrict detection to the playing-field portion of the crop
     y_max = int(h * STONE_Y_MAX_FRAC)
     play_mask = np.zeros((h, w), dtype=np.uint8)
     play_mask[STONE_Y_MIN_PX:y_max, :] = 255
 
+    # Use per-page calibrated colour ranges if provided, else static constants
+    # (improvement #3)
+    if color_ranges is not None:
+        red_lo1, red_hi1, red_lo2, red_hi2, yel_lo, yel_hi = color_ranges
+    else:
+        red_lo1, red_hi1 = RED_LOWER_1, RED_UPPER_1
+        red_lo2, red_hi2 = RED_LOWER_2, RED_UPPER_2
+        yel_lo, yel_hi = YELLOW_LOWER, YELLOW_UPPER
+
     mask_red = (
-        cv2.inRange(hsv, RED_LOWER_1, RED_UPPER_1)
-        | cv2.inRange(hsv, RED_LOWER_2, RED_UPPER_2)
+        cv2.inRange(hsv, red_lo1, red_hi1)
+        | cv2.inRange(hsv, red_lo2, red_hi2)
     ) & play_mask
 
-    mask_yellow = cv2.inRange(hsv, YELLOW_LOWER, YELLOW_UPPER) & play_mask
+    mask_yellow = cv2.inRange(hsv, yel_lo, yel_hi) & play_mask
+
+    # Morphological close to fill small holes and merge fragmented blobs
+    # caused by PDF compression artefacts (improvement #7)
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+    mask_red = cv2.morphologyEx(mask_red, cv2.MORPH_CLOSE, kernel)
+    mask_yellow = cv2.morphologyEx(mask_yellow, cv2.MORPH_CLOSE, kernel)
 
     def _extract(mask):
         contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         stones = []
         for c in contours:
             area = cv2.contourArea(c)
-            if STONE_MIN_AREA < area < STONE_MAX_AREA:
+            if min_area < area < max_area:
                 # Reject outline-only "ghost" markers.  Count actual colored
                 # pixels in the contour's bounding rect and compare to the
                 # contour area.  Filled stones have ratio ≈ 1.0; outline rings
                 # have ratio << STONE_MIN_FILL_RATIO.
                 x, y, w_c, h_c = cv2.boundingRect(c)
-                colored_pixels = cv2.countNonZero(mask[y:y + h_c, x:x + w_c])
+                stone_mask = mask[y:y + h_c, x:x + w_c]
+                colored_pixels = cv2.countNonZero(stone_mask)
                 if colored_pixels / area < STONE_MIN_FILL_RATIO:
                     continue
-                M = cv2.moments(c)
-                if M["m00"] > 0:
-                    sx = M["m10"] / M["m00"]
-                    sy = M["m01"] / M["m00"]
-                    # When the house is at the bottom the view is rotated 180°,
-                    # so both axes are mirrored relative to the standard orientation.
-                    if orientation == "top":
-                        nx = (sx - house_cx) / HOUSE_RADIUS
-                        ny = (sy - house_cy) / HOUSE_RADIUS
-                    else:
-                        nx = (house_cx - sx) / HOUSE_RADIUS
-                        ny = (house_cy - sy) / HOUSE_RADIUS
-                    dist = math.sqrt(nx * nx + ny * ny)
-                    angle = math.degrees(math.atan2(ny, nx))
-                    stones.append((nx, ny, dist, angle))
+                # Use filled-pixel centroid for more accurate sub-pixel
+                # position (improvement #6)
+                Mpx = cv2.moments(stone_mask)
+                if Mpx["m00"] > 0:
+                    sx = x + Mpx["m10"] / Mpx["m00"]
+                    sy = y + Mpx["m01"] / Mpx["m00"]
+                else:
+                    # Fallback to contour polygon moments
+                    Mc = cv2.moments(c)
+                    if Mc["m00"] == 0:
+                        continue
+                    sx = Mc["m10"] / Mc["m00"]
+                    sy = Mc["m01"] / Mc["m00"]
+                # When the house is at the bottom the view is rotated 180°,
+                # so both axes are mirrored relative to the standard orientation.
+                # Normalise using the dynamically detected ring radius (#1).
+                if orientation == "top":
+                    nx = (sx - house_cx) / house_radius
+                    ny = (sy - house_cy) / house_radius
+                else:
+                    nx = (house_cx - sx) / house_radius
+                    ny = (house_cy - sy) / house_radius
+                dist = math.sqrt(nx * nx + ny * ny)
+                angle = math.degrees(math.atan2(ny, nx))
+                stones.append((nx, ny, dist, angle))
         stones.sort(key=lambda s: s[2])
         return stones
 
@@ -545,8 +816,8 @@ def _match_stones_to_state(prev_state, curr_stones, stone_id_counter):
         matched.append((sid, nx, ny, dist, angle, prev_x, prev_y))
         new_state.append((sid, nx, ny))
 
-    # Keep distance-sorted order (dist is index 4 in the matched tuple).
-    matched.sort(key=lambda s: s[4])
+    # Keep distance-sorted order (dist is index 3 in the matched tuple).
+    matched.sort(key=lambda s: s[3])
     return matched, new_state
 
 
@@ -759,18 +1030,27 @@ def extract_event(pdf_path, event_id):
             # Render page and detect stones for each shot
             page_bgr = render_page_image(page)
 
+            # Calibrate per-page stone colour ranges from the team indicator
+            # images (improvement #3); falls back to static constants silently.
+            color_ranges = _calibrate_stone_colors(page_bgr, page)
+
             # Sequential tracking state for this end (reset at the start of
             # each end page).  Each entry is (stone_id, px, py).
             track_state = {1: [], 2: []}
             # Stone IDs are scoped to the current end; counter resets per end.
             end_stone_id_counter = [1]
 
+            # Collect per-crop orientations for the page-level consistency
+            # check (improvement #9).
+            page_orientations = []
+
             for shot_idx in range(16):
                 shot_num = shot_idx + 1
                 meta = shot_metas[shot_idx]
                 crop = crop_shot_image(page_bgr, shot_images[shot_idx])
 
-                red_stones, yellow_stones, house_orientation = _detect_stones_in_crop(crop)
+                red_stones, yellow_stones, house_orientation = _detect_stones_in_crop(crop, color_ranges)
+                page_orientations.append(house_orientation)
 
                 # Map red/yellow to team1/team2 using the team color indicator
                 # images on the page.  In the PDF the first small indicator
@@ -844,9 +1124,173 @@ def extract_event(pdf_path, event_id):
 
                 shots_rows.append(row)
 
+            # Page-level orientation consistency check (improvement #9).
+            # All 16 crops on the same end page should agree on orientation;
+            # a disagreement most likely indicates a detection fallback firing
+            # with the wrong orientation for some crops, which would silently
+            # invert stone y-coordinates for those shots.
+            if len(set(page_orientations)) > 1:
+                orient_counts = collections.Counter(page_orientations)
+                majority, _ = orient_counts.most_common(1)[0]
+                disagreeing = sum(1 for o in page_orientations if o != majority)
+                print(
+                    f"WARNING: inconsistent house orientation on event "
+                    f"{event_id}, match {match_id}, end {end_number}: "
+                    f"{disagreeing}/16 crop(s) disagree with majority "
+                    f"'{majority}'. Stone y-coordinates may be inverted "
+                    "for affected shots."
+                )
+
     pdf.close()
 
     return matches_rows, teams_dict, players_dict, ends_rows, shots_rows
+
+
+def run_calibration_diagnostic(pdf_paths, verbose=True):
+    """Run a per-event calibration diagnostic pass (improvement #10).
+
+    For each PDF, renders the first shot diagram of the first shot page,
+    detects the house centre and 12-foot ring radius via
+    :func:`_detect_house_center`, and checks whether the detected radius
+    deviates from :data:`HOUSE_RADIUS` by more than 10 %.  Also examines
+    shot 1 stone detections for stones far outside the house, which are a
+    signal of miscalibrated HSV thresholds or a failed house-ring detection.
+
+    Intended to be run *separately* from the main extraction (not called
+    by :func:`extract_all`) as a pre-flight check before processing a large
+    batch of PDFs.
+
+    Parameters
+    ----------
+    pdf_paths : list[str]
+        Local file paths or HTTP(S) URLs to tournament result PDFs.
+    verbose : bool
+        When ``True`` (default) print a per-event summary to stdout.
+
+    Returns
+    -------
+    list[dict]
+        One dict per event with keys ``event``, ``pdf``, ``status``,
+        ``detected_radius``, ``deviation_pct``, ``house_cx``, ``house_cy``,
+        ``orientation``, ``shot1_red``, ``shot1_yellow``, ``shot1_suspect``.
+        ``status`` is ``'ok'``, ``'radius_deviation'``, ``'suspect_stones'``,
+        ``'no_shot_pages'``, ``'no_shot_images'``, or ``'error'``.
+    """
+    RADIUS_DEVIATION_THRESHOLD = 0.10   # flag events deviating > 10 %
+    SUSPECT_DIST_THRESHOLD = 1.5        # normalised units (12-ft ring = 1.0)
+
+    results = []
+    n = len(pdf_paths)
+
+    for event_idx, pdf_path in enumerate(pdf_paths, start=1):
+        event_name = os.path.splitext(os.path.basename(pdf_path))[0]
+        if verbose:
+            print(f"\n[{event_idx}/{n}] {event_name}")
+            print(f"  PDF: {pdf_path}")
+
+        try:
+            pdf = _open_pdf(pdf_path)
+        except RuntimeError as exc:
+            if verbose:
+                print(f"  ERROR: {exc}")
+            results.append({"event": event_name, "pdf": pdf_path,
+                             "status": "error", "error": str(exc)})
+            continue
+
+        shot_pages = find_shot_pages(pdf)
+        if not shot_pages:
+            if verbose:
+                print("  No shot pages found.")
+            pdf.close()
+            results.append({"event": event_name, "pdf": pdf_path,
+                             "status": "no_shot_pages"})
+            continue
+
+        first_page = pdf.pages[shot_pages[0]]
+        shot_images = _get_shot_images(first_page)
+        if not shot_images:
+            if verbose:
+                print("  No shot images found on first shot page.")
+            pdf.close()
+            results.append({"event": event_name, "pdf": pdf_path,
+                             "status": "no_shot_images"})
+            continue
+
+        page_bgr = render_page_image(first_page)
+        first_crop = crop_shot_image(page_bgr, shot_images[0])
+
+        # Detect house centre and ring radius.
+        cx, cy, detected_radius, orientation = _detect_house_center(first_crop)
+        deviation_pct = abs(detected_radius - HOUSE_RADIUS) / HOUSE_RADIUS
+        radius_ok = deviation_pct <= RADIUS_DEVIATION_THRESHOLD
+
+        # Check shot 1 for stones unexpectedly far outside the house.
+        color_ranges = _calibrate_stone_colors(page_bgr, first_page)
+        red_stones, yellow_stones, _ = _detect_stones_in_crop(first_crop, color_ranges)
+        all_stones = red_stones + yellow_stones
+        suspect_stones = [s for s in all_stones if s[2] > SUSPECT_DIST_THRESHOLD]
+
+        if not radius_ok:
+            status = "radius_deviation"
+        elif suspect_stones:
+            status = "suspect_stones"
+        else:
+            status = "ok"
+
+        if verbose:
+            print(
+                f"  Detected radius : {detected_radius:.1f} px  "
+                f"(nominal {HOUSE_RADIUS} px, deviation {deviation_pct * 100:.1f} %)"
+            )
+            print(f"  House centre    : ({cx:.1f}, {cy:.1f})  orientation: {orientation}")
+            print(
+                f"  Shot 1 stones   : {len(red_stones)} red, "
+                f"{len(yellow_stones)} yellow  "
+                f"(suspect far-outside: {len(suspect_stones)})"
+            )
+            if not radius_ok:
+                print(
+                    f"  WARNING: radius deviation > {RADIUS_DEVIATION_THRESHOLD * 100:.0f} % — "
+                    "consider adding a per-event override config:"
+                )
+                print(
+                    f'    {{"house_radius": {detected_radius:.0f}, '
+                    f'"house_cx": {cx:.0f}, "house_cy": {cy:.0f}}}'
+                )
+            if suspect_stones:
+                print(
+                    f"  WARNING: {len(suspect_stones)} stone(s) detected "
+                    "far outside the house — check HSV thresholds or house "
+                    "ring detection for this event."
+                )
+
+        results.append({
+            "event": event_name,
+            "pdf": pdf_path,
+            "status": status,
+            "detected_radius": round(detected_radius, 1),
+            "deviation_pct": round(deviation_pct * 100, 1),
+            "house_cx": round(cx, 1),
+            "house_cy": round(cy, 1),
+            "orientation": orientation,
+            "shot1_red": len(red_stones),
+            "shot1_yellow": len(yellow_stones),
+            "shot1_suspect": len(suspect_stones),
+        })
+        pdf.close()
+
+    if verbose:
+        ok_count = sum(1 for r in results if r.get("status") == "ok")
+        warn_count = len(results) - ok_count
+        print(f"\n{'=' * 60}")
+        print(f"Calibration summary: {len(results)} event(s), "
+              f"{ok_count} OK, {warn_count} warning(s)")
+        print(f"{'=' * 60}")
+        for r in results:
+            if r.get("status") != "ok":
+                print(f"  [{r['status'].upper()}] {r['event']}")
+
+    return results
 
 
 def extract_all(pdf_paths, output_dir="output", event_metadata=None):
@@ -1074,6 +1518,12 @@ def main():
     parser.add_argument("--min-year", type=int, default=DEFAULT_MIN_YEAR,
                         help="Minimum event year to include when reading from "
                              "--results-csv (default: 2013).")
+    parser.add_argument("--calibrate", action="store_true",
+                        help="Run the per-event calibration diagnostic instead "
+                             "of the full extraction (improvement #10). Prints "
+                             "a per-event report and flags any event where the "
+                             "detected house-ring radius deviates from the "
+                             "nominal value by more than 10%%.")
     args = parser.parse_args()
 
     if args.pdfs:
@@ -1099,6 +1549,11 @@ def main():
             )
         pdf_sources = [r["result_book_url"] for r in rows]
         metadata = rows
+
+    if args.calibrate:
+        print(f"Running calibration diagnostic on {len(pdf_sources)} PDF(s) …")
+        run_calibration_diagnostic(pdf_sources)
+        return
 
     print(f"Extracting shot data from {len(pdf_sources)} PDF(s) …")
     extract_all(pdf_sources, args.output_dir, event_metadata=metadata)

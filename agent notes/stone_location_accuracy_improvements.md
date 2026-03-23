@@ -10,7 +10,7 @@ and cross-event consistency.
 
 ## Improvement 1 — Dynamic `HOUSE_RADIUS` Detection
 
-**Status: 🔲 Not started**
+**Status: ✅ Complete**
 
 ### Problem
 
@@ -38,7 +38,7 @@ no warning signal.
 
 ## Improvement 2 — Adaptive House Ring Color Thresholds
 
-**Status: 🔲 Not started**
+**Status: ✅ Complete**
 
 ### Problem
 
@@ -68,7 +68,7 @@ any indication.
 
 ## Improvement 3 — Per-Page Stone Color Calibration from Team Indicator Dots
 
-**Status: 🔲 Not started**
+**Status: ✅ Complete** *(yellow range calibrated; red kept static as it is stable across events)*
 
 ### Problem
 
@@ -97,7 +97,7 @@ minimum slightly, relying on the area/fill-ratio guards to reject false positive
 
 ## Improvement 4 — Scale Area Bounds with Detected Rink Size
 
-**Status: 🔲 Not started**
+**Status: ✅ Complete** *(implemented as a natural dependency of #1)*
 
 ### Problem
 
@@ -125,7 +125,7 @@ effective_max_area = STONE_MAX_AREA * scale_sq
 
 ## Improvement 5 — Remove `int()` Truncation from House Centre Centroid
 
-**Status: 🔲 Not started**
+**Status: ✅ Complete** *(implemented inside #1)*
 
 ### Problem
 
@@ -151,7 +151,7 @@ in the normalisation step in `_detect_stones_in_crop()`. The improvement is smal
 
 ## Improvement 6 — Use Filled-Pixel Centroid Instead of Contour Polygon Moments
 
-**Status: 🔲 Not started**
+**Status: ✅ Complete**
 
 ### Problem
 
@@ -181,7 +181,7 @@ This is more robust to irregular contour shapes caused by rendering artifacts.
 
 ## Improvement 7 — Morphological Preprocessing Before Contour Detection
 
-**Status: 🔲 Not started**
+**Status: ✅ Complete**
 
 ### Problem
 
@@ -209,7 +209,7 @@ meaningfully displacing clean detections.
 
 ## Improvement 8 — Validate Shot Image Grid Layout
 
-**Status: 🔲 Not started**
+**Status: ✅ Complete**
 
 ### Problem
 
@@ -234,7 +234,7 @@ position) should be excluded before the `len == 16` check rather than after.
 
 ## Improvement 9 — Page-Level Orientation Consistency Check
 
-**Status: 🔲 Not started**
+**Status: ✅ Complete**
 
 ### Problem
 
@@ -260,7 +260,7 @@ genuine layout switch.
 
 ## Improvement 10 — Per-Event Calibration Diagnostic Pass
 
-**Status: 🔲 Not started**
+**Status: ✅ Complete**
 
 ### Problem
 
@@ -296,16 +296,16 @@ extraction) that:
 
 | # | Issue | Impact | Effort | Status |
 |---|---|---|---|---|
-| 1 | `HOUSE_RADIUS` not detected — systematic per-event scaling bias | High | Medium | 🔲 |
-| 2 | House ring colour thresholds fail on non-standard PDFs → silent fallback | High | Medium | 🔲 |
-| 3 | Stone HSV ranges are global → mis-detection for non-standard events | High | Low–Medium | 🔲 |
-| 4 | Area bounds don't scale with rink size → silent stone drops | Medium | Low | 🔲 |
-| 5 | `int()` truncation discards sub-pixel centre accuracy | Low | Low | 🔲 |
-| 6 | Contour moments vs. filled-pixel centroid | Low–Medium | Low | 🔲 |
-| 7 | No morphological preprocessing → noisy contours | Low–Medium | Low | 🔲 |
-| 8 | Shot image grid validation absent → silent misalignment | Medium | Medium | 🔲 |
-| 9 | Orientation fallback can invert all y-coordinates for an event | Medium | Low | 🔲 |
-| 10 | No per-event calibration diagnostic | Medium (long-term) | Medium–High | 🔲 |
+| 1 | `HOUSE_RADIUS` not detected — systematic per-event scaling bias | High | Medium | ✅ |
+| 2 | House ring colour thresholds fail on non-standard PDFs → silent fallback | High | Medium | ✅ |
+| 3 | Stone HSV ranges are global → mis-detection for non-standard events | High | Low–Medium | ✅ |
+| 4 | Area bounds don't scale with rink size → silent stone drops | Medium | Low | ✅ |
+| 5 | `int()` truncation discards sub-pixel centre accuracy | Low | Low | ✅ |
+| 6 | Contour moments vs. filled-pixel centroid | Low–Medium | Low | ✅ |
+| 7 | No morphological preprocessing → noisy contours | Low–Medium | Low | ✅ |
+| 8 | Shot image grid validation absent → silent misalignment | Medium | Medium | ✅ |
+| 9 | Orientation fallback can invert all y-coordinates for an event | Medium | Low | ✅ |
+| 10 | No per-event calibration diagnostic | Medium (long-term) | Medium–High | ✅ |
 
 ### Recommended implementation order
 

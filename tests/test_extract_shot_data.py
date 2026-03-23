@@ -5,6 +5,7 @@ import os
 import csv
 import urllib.error
 import urllib.request
+from unittest.mock import patch
 
 import pytest
 
@@ -14,6 +15,8 @@ from extract_shot_data import (
     parse_score_box,
     find_shot_pages,
     _get_shot_images,
+    _filter_shot_images_by_grid,
+    _keep_regular_columns,
     _extract_shot_metadata_from_words,
     _detect_stones_in_crop,
     _match_stones_to_state,
@@ -23,6 +26,7 @@ from extract_shot_data import (
     _open_pdf,
     _is_url,
     load_result_urls,
+    run_calibration_diagnostic,
     DEFAULT_PDF_URLS,
     DEFAULT_MIN_YEAR,
     STONE_TRACK_MAX_DIST,
@@ -483,7 +487,7 @@ class TestWithPDF:
 
         crop = crop_shot_image(page_bgr, shot_imgs[11])  # shot 12
 
-        red_stones, yellow_stones = _detect_stones_in_crop(crop)
+        red_stones, yellow_stones, _ = _detect_stones_in_crop(crop)
         # Shot 12 should have several stones visible
         assert len(red_stones) >= 3
         assert len(yellow_stones) >= 3
@@ -559,3 +563,404 @@ class TestMultiEvent:
         event2_teams = [t for t in teams if t["event_id"] == "2"]
         assert len(event1_teams) == 10
         assert len(event2_teams) > 0
+
+
+# ---------------------------------------------------------------------------
+# Improvement 8 — Shot image grid validation
+# ---------------------------------------------------------------------------
+
+def _make_grid_image(x0, top, width=60, height=110):
+    """Return a minimal image-metadata dict like pdfplumber produces."""
+    return {"x0": x0, "x1": x0 + width, "top": top, "bottom": top + height,
+            "width": width, "height": height}
+
+
+def _make_standard_grid():
+    """Return a list of 16 image dicts arranged in the standard 6-6-4 layout."""
+    images = []
+    col_xs = [10 + i * 70 for i in range(6)]  # 6 columns
+    row_tops = [50, 200, 350]                  # 3 rows
+    counts = [6, 6, 4]
+    for row_top, count in zip(row_tops, counts):
+        for ci in range(count):
+            images.append(_make_grid_image(col_xs[ci], row_top))
+    return images
+
+
+class TestKeepRegularColumns:
+    """Unit tests for _keep_regular_columns."""
+
+    def test_exact_count_returns_input(self):
+        images = [_make_grid_image(i * 70, 50) for i in range(6)]
+        result = _keep_regular_columns(images, 6)
+        assert result == images
+
+    def test_one_extra_removes_outlier(self):
+        # 6 evenly-spaced images plus one extra squeezed between cols 0 and 1
+        images = [_make_grid_image(i * 70, 50) for i in range(6)]
+        outlier = _make_grid_image(10, 50)        # x0=10, very close to first
+        all_imgs = sorted(images + [outlier], key=lambda i: i["x0"])
+        result = _keep_regular_columns(all_imgs, 6)
+        assert result is not None
+        assert len(result) == 6
+        # The outlier at x0=10 should be excluded; the regular grid stays
+        result_xs = sorted(img["x0"] for img in result)
+        assert result_xs == sorted(img["x0"] for img in images)
+
+    def test_two_extras_returns_none(self):
+        images = [_make_grid_image(i * 70, 50) for i in range(8)]
+        result = _keep_regular_columns(images, 6)
+        assert result is None
+
+
+class TestFilterShotImagesByGrid:
+    """Unit tests for _filter_shot_images_by_grid (improvement #8)."""
+
+    def test_exact_16_unchanged(self):
+        images = _make_standard_grid()
+        result = _filter_shot_images_by_grid(images)
+        assert len(result) == 16
+
+    def test_logo_in_row1_excluded(self):
+        """An extra image in row 1 that disrupts column spacing is removed."""
+        images = _make_standard_grid()
+        # Insert a logo-like image at an x position that breaks row 1's spacing
+        logo = _make_grid_image(x0=5, top=50)   # same y-row as row1, awkward x
+        candidates = images + [logo]
+        result = _filter_shot_images_by_grid(candidates)
+        assert len(result) == 16
+        # The logo should not appear in the result
+        assert logo not in result
+
+    def test_logo_in_separate_row_no_resolve(self):
+        """An extra image forming its own 4th row cannot be resolved; original returned."""
+        images = _make_standard_grid()
+        logo = _make_grid_image(x0=100, top=600)  # far below all 3 rows
+        candidates = images + [logo]
+        result = _filter_shot_images_by_grid(candidates)
+        # Cannot split into 3 clean rows — should return candidates unchanged
+        assert set(id(i) for i in result) == set(id(i) for i in candidates)
+
+    def test_too_few_candidates_unchanged(self):
+        images = _make_standard_grid()[:14]  # only 14
+        result = _filter_shot_images_by_grid(images)
+        assert result == images
+
+    def test_get_shot_images_still_returns_16_for_normal_page(self):
+        """_get_shot_images returns the same 16 images from a mock page."""
+        images = _make_standard_grid()
+
+        class FakePage:
+            pass
+
+        page = FakePage()
+        page.images = images
+        result = _get_shot_images(page)
+        assert len(result) == 16
+
+
+# ---------------------------------------------------------------------------
+# Improvement 9 — Page-level orientation consistency warning
+# ---------------------------------------------------------------------------
+
+class TestOrientationConsistencyWarning:
+    """Tests that a warning is printed when shot crops disagree on orientation."""
+
+    def test_warning_on_mixed_orientations(self, capsys):
+        """extract_event emits a WARNING when house orientations are inconsistent
+        across the 16 crops of an end page."""
+        # Build a mock PDF chain so we don't need a real file.
+        import extract_shot_data as esd
+        import numpy as np
+
+        # Patch everything needed to run a minimal end-page pass.
+        # _detect_stones_in_crop is called 16 times — we make 15 return 'top'
+        # and 1 return 'bottom' to trigger the inconsistency warning.
+        call_count = [0]
+
+        def fake_detect(crop, color_ranges=None):
+            call_count[0] += 1
+            orient = "bottom" if call_count[0] == 3 else "top"
+            return [], [], orient
+
+        fake_page_bgr = np.zeros((700, 400, 3), dtype=np.uint8)
+
+        def fake_render(page):
+            return fake_page_bgr
+
+        def fake_crop(page_bgr, meta):
+            return np.zeros((100, 60, 3), dtype=np.uint8)
+
+        # A minimal shot image list (16 items).
+        shot_imgs = [_make_grid_image(i * 25, 50) for i in range(16)]
+
+        def fake_get_shot_images(page):
+            return shot_imgs
+
+        def fake_calibrate(page_bgr, page):
+            return None
+
+        def fake_shot_meta(words, imgs):
+            return [
+                {"team_code": "T1", "player_name": "PLAYER A",
+                 "shot_type": "Draw", "turn": "Clockwise", "accuracy": "90"}
+                if i % 2 == 0 else
+                {"team_code": "T2", "player_name": "PLAYER B",
+                 "shot_type": "Guard", "turn": "Counter-clockwise", "accuracy": "85"}
+                for i in range(16)
+            ]
+
+        # Minimal pdfplumber-like PDF stub
+        class FakePage:
+            def extract_text(self):
+                return (
+                    "SAT 01 JAN 2025 Round Robin\n"
+                    "Start Time 10:00\n"
+                    "End 1 T1 - Team One 0 + 1 (this end) = 1 "
+                    "T2 - Team Two 0 + 0 (this end) = 0\n"
+                    "Total Score 1 0\nTime left 30:00 30:00"
+                )
+            def extract_words(self):
+                return []
+            @property
+            def images(self):
+                return shot_imgs
+
+        class FakePDF:
+            pages = [FakePage()]
+            def close(self):
+                pass
+
+        def fake_open(source):
+            return FakePDF()
+
+        def fake_find_shot_pages(pdf):
+            return [0]
+
+        def fake_group_pages(pdf, indices):
+            return [[0]]
+
+        def fake_match_stones(prev, curr, counter):
+            return [], []
+
+        with (
+            patch.object(esd, "_open_pdf", side_effect=fake_open),
+            patch.object(esd, "find_shot_pages", side_effect=fake_find_shot_pages),
+            patch.object(esd, "group_pages_into_matches", side_effect=fake_group_pages),
+            patch.object(esd, "_get_shot_images", side_effect=fake_get_shot_images),
+            patch.object(esd, "render_page_image", side_effect=fake_render),
+            patch.object(esd, "crop_shot_image", side_effect=fake_crop),
+            patch.object(esd, "_calibrate_stone_colors", side_effect=fake_calibrate),
+            patch.object(esd, "_extract_shot_metadata_from_words", side_effect=fake_shot_meta),
+            patch.object(esd, "_detect_stones_in_crop", side_effect=fake_detect),
+            patch.object(esd, "_match_stones_to_state", side_effect=fake_match_stones),
+        ):
+            esd.extract_event("fake.pdf", event_id=1)
+
+        captured = capsys.readouterr()
+        assert "WARNING" in captured.out
+        assert "inconsistent house orientation" in captured.out.lower()
+
+    def test_no_warning_on_uniform_orientations(self, capsys):
+        """No warning is emitted when all crops agree on orientation."""
+        import extract_shot_data as esd
+        import numpy as np
+
+        def fake_detect(crop, color_ranges=None):
+            return [], [], "top"   # always top
+
+        fake_page_bgr = np.zeros((700, 400, 3), dtype=np.uint8)
+        shot_imgs = [_make_grid_image(i * 25, 50) for i in range(16)]
+
+        class FakePage:
+            def extract_text(self):
+                return (
+                    "SAT 01 JAN 2025 Round Robin\n"
+                    "Start Time 10:00\n"
+                    "End 1 T1 - Team One 0 + 1 (this end) = 1 "
+                    "T2 - Team Two 0 + 0 (this end) = 0\n"
+                    "Total Score 1 0\nTime left 30:00 30:00"
+                )
+            def extract_words(self):
+                return []
+            @property
+            def images(self):
+                return shot_imgs
+
+        class FakePDF:
+            pages = [FakePage()]
+            def close(self):
+                pass
+
+        with (
+            patch.object(esd, "_open_pdf", lambda _: FakePDF()),
+            patch.object(esd, "find_shot_pages", lambda _: [0]),
+            patch.object(esd, "group_pages_into_matches", lambda _p, _i: [[0]]),
+            patch.object(esd, "_get_shot_images", lambda _: shot_imgs),
+            patch.object(esd, "render_page_image", lambda _: fake_page_bgr),
+            patch.object(esd, "crop_shot_image", lambda _b, _m: np.zeros((100, 60, 3), dtype=np.uint8)),
+            patch.object(esd, "_calibrate_stone_colors", lambda _b, _p: None),
+            patch.object(esd, "_extract_shot_metadata_from_words", lambda _w, _i: [
+                {"team_code": "T1", "player_name": "P", "shot_type": "Draw",
+                 "turn": "Clockwise", "accuracy": "90"} if k % 2 == 0 else
+                {"team_code": "T2", "player_name": "Q", "shot_type": "Guard",
+                 "turn": "Counter-clockwise", "accuracy": "80"}
+                for k in range(16)
+            ]),
+            patch.object(esd, "_detect_stones_in_crop", side_effect=fake_detect),
+            patch.object(esd, "_match_stones_to_state", lambda *a: ([], [])),
+        ):
+            esd.extract_event("fake.pdf", event_id=1)
+
+        captured = capsys.readouterr()
+        assert "inconsistent house orientation" not in captured.out.lower()
+
+
+# ---------------------------------------------------------------------------
+# Improvement 10 — Per-event calibration diagnostic
+# ---------------------------------------------------------------------------
+
+class TestRunCalibrationDiagnostic:
+    """Unit tests for run_calibration_diagnostic (improvement #10)."""
+
+    def _make_minimal_pdf_mocks(self, detected_radius=112, suspect=False):
+        """Return a set of patches for a minimal successful calibration run."""
+        import numpy as np
+        import extract_shot_data as esd
+
+        fake_bgr = np.zeros((700, 400, 3), dtype=np.uint8)
+        shot_imgs = [_make_grid_image(i * 25, 50) for i in range(16)]
+
+        class FakePage:
+            @property
+            def images(self):
+                return shot_imgs
+
+        class FakePDF:
+            pages = [FakePage()]
+            def close(self): pass
+
+        dist = 2.0 if suspect else 0.3
+        stones = [(0.0, 0.0, dist, 0.0)]
+
+        return {
+            "_open_pdf": lambda _: FakePDF(),
+            "find_shot_pages": lambda _: [0],
+            "_get_shot_images": lambda _: shot_imgs,
+            "render_page_image": lambda _: fake_bgr,
+            "crop_shot_image": lambda _b, _m: np.zeros((100, 60, 3), dtype=np.uint8),
+            "_detect_house_center": lambda _: (161.0, 171.0, float(detected_radius), "top"),
+            "_calibrate_stone_colors": lambda _b, _p: None,
+            "_detect_stones_in_crop": lambda _c, _r=None: (stones, [], "top"),
+        }
+
+    def test_ok_result_for_good_event(self):
+        import extract_shot_data as esd
+
+        patches = self._make_minimal_pdf_mocks(detected_radius=112, suspect=False)
+        with (
+            patch.object(esd, "_open_pdf", patches["_open_pdf"]),
+            patch.object(esd, "find_shot_pages", patches["find_shot_pages"]),
+            patch.object(esd, "_get_shot_images", patches["_get_shot_images"]),
+            patch.object(esd, "render_page_image", patches["render_page_image"]),
+            patch.object(esd, "crop_shot_image", patches["crop_shot_image"]),
+            patch.object(esd, "_detect_house_center", patches["_detect_house_center"]),
+            patch.object(esd, "_calibrate_stone_colors", patches["_calibrate_stone_colors"]),
+            patch.object(esd, "_detect_stones_in_crop", patches["_detect_stones_in_crop"]),
+        ):
+            results = run_calibration_diagnostic(["fake_event.pdf"], verbose=False)
+
+        assert len(results) == 1
+        assert results[0]["status"] == "ok"
+        assert results[0]["detected_radius"] == 112.0
+        assert results[0]["deviation_pct"] == 0.0
+
+    def test_radius_deviation_flagged(self):
+        import extract_shot_data as esd
+
+        # 140 px is 25% above the nominal 112 — exceeds 10% threshold
+        patches = self._make_minimal_pdf_mocks(detected_radius=140, suspect=False)
+        with (
+            patch.object(esd, "_open_pdf", patches["_open_pdf"]),
+            patch.object(esd, "find_shot_pages", patches["find_shot_pages"]),
+            patch.object(esd, "_get_shot_images", patches["_get_shot_images"]),
+            patch.object(esd, "render_page_image", patches["render_page_image"]),
+            patch.object(esd, "crop_shot_image", patches["crop_shot_image"]),
+            patch.object(esd, "_detect_house_center", patches["_detect_house_center"]),
+            patch.object(esd, "_calibrate_stone_colors", patches["_calibrate_stone_colors"]),
+            patch.object(esd, "_detect_stones_in_crop", patches["_detect_stones_in_crop"]),
+        ):
+            results = run_calibration_diagnostic(["fake_event.pdf"], verbose=False)
+
+        assert results[0]["status"] == "radius_deviation"
+        assert results[0]["deviation_pct"] > 10.0
+
+    def test_suspect_stones_flagged(self):
+        import extract_shot_data as esd
+
+        # Radius OK but a stone is detected far outside the house
+        patches = self._make_minimal_pdf_mocks(detected_radius=112, suspect=True)
+        with (
+            patch.object(esd, "_open_pdf", patches["_open_pdf"]),
+            patch.object(esd, "find_shot_pages", patches["find_shot_pages"]),
+            patch.object(esd, "_get_shot_images", patches["_get_shot_images"]),
+            patch.object(esd, "render_page_image", patches["render_page_image"]),
+            patch.object(esd, "crop_shot_image", patches["crop_shot_image"]),
+            patch.object(esd, "_detect_house_center", patches["_detect_house_center"]),
+            patch.object(esd, "_calibrate_stone_colors", patches["_calibrate_stone_colors"]),
+            patch.object(esd, "_detect_stones_in_crop", patches["_detect_stones_in_crop"]),
+        ):
+            results = run_calibration_diagnostic(["fake_event.pdf"], verbose=False)
+
+        assert results[0]["status"] == "suspect_stones"
+        assert results[0]["shot1_suspect"] >= 1
+
+    def test_download_failure_returns_error_status(self):
+        import extract_shot_data as esd
+
+        def bad_open(_):
+            raise RuntimeError("404 Not Found")
+
+        with patch.object(esd, "_open_pdf", side_effect=bad_open):
+            results = run_calibration_diagnostic(
+                ["https://example.com/missing.pdf"], verbose=False
+            )
+
+        assert len(results) == 1
+        assert results[0]["status"] == "error"
+
+    def test_no_shot_pages_status(self):
+        import extract_shot_data as esd
+        import numpy as np
+
+        class FakePDF:
+            pages = []
+            def close(self): pass
+
+        with (
+            patch.object(esd, "_open_pdf", lambda _: FakePDF()),
+            patch.object(esd, "find_shot_pages", lambda _: []),
+        ):
+            results = run_calibration_diagnostic(["fake.pdf"], verbose=False)
+
+        assert results[0]["status"] == "no_shot_pages"
+
+    def test_verbose_output_contains_summary(self, capsys):
+        import extract_shot_data as esd
+
+        patches = self._make_minimal_pdf_mocks(detected_radius=112, suspect=False)
+        with (
+            patch.object(esd, "_open_pdf", patches["_open_pdf"]),
+            patch.object(esd, "find_shot_pages", patches["find_shot_pages"]),
+            patch.object(esd, "_get_shot_images", patches["_get_shot_images"]),
+            patch.object(esd, "render_page_image", patches["render_page_image"]),
+            patch.object(esd, "crop_shot_image", patches["crop_shot_image"]),
+            patch.object(esd, "_detect_house_center", patches["_detect_house_center"]),
+            patch.object(esd, "_calibrate_stone_colors", patches["_calibrate_stone_colors"]),
+            patch.object(esd, "_detect_stones_in_crop", patches["_detect_stones_in_crop"]),
+        ):
+            run_calibration_diagnostic(["fake_event.pdf"], verbose=True)
+
+        captured = capsys.readouterr()
+        assert "Calibration summary" in captured.out
+        assert "fake_event" in captured.out

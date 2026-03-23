@@ -1,82 +1,50 @@
 event_id,match_id,date,round,start_time,team1_code,team2_code,team1_final_score,team2_final_score
-1,1,SAT 14 MAR 2026,Gold Medal Game,15:05 Partita per la medaglia d'oro,CHN,CAN,3,4
-1,2,FRI 13 MAR 2026,Bronze Medal Game,18:35 Partita per la medaglia di bronzo,KOR,SWE,4,7
-1,3,FRI 13 MAR 2026,Semi-final - Sheet B,10:05 Semifinale - Campo B - piste B,KOR,CAN,7,8
-1,4,FRI 13 MAR 2026,Semi-final - Sheet D,10:05 Semifinale - Campo D - piste D,CHN,SWE,7,6
-1,5,THU 12 MAR 2026,Round Robin Session 12 - Sheet A,18:35 Girone Sessione 12 - Campo A,CHN,SVK,7,4
-1,6,THU 12 MAR 2026,Round Robin Session 12 - Sheet B,18:35 Girone Sessione 12 - Campo B,NOR,GBR,9,2
-1,7,THU 12 MAR 2026,Round Robin Session 12 - Sheet C,18:35 Girone Sessione 12 - Campo C,KOR,ITA,6,5
-1,8,THU 12 MAR 2026,Round Robin Session 12 - Sheet D,18:35 Girone Sessione 12 - Campo D,CAN,USA,7,3
-1,9,THU 12 MAR 2026,Round Robin Session 11 - Sheet A,13:35 Girone Sessione 11 - Campo A,CAN,KOR,6,3
-1,10,THU 12 MAR 2026,Round Robin Session 11 - Sheet B,13:35 Girone Sessione 11 - Campo B,CHN,SWE,12,3
-1,11,THU 12 MAR 2026,Round Robin Session 11 - Sheet C,13:35 Girone Sessione 11 - Campo C,NOR,USA,7,4
-1,12,THU 12 MAR 2026,Round Robin Session 11 - Sheet D,13:35 Girone Sessione 11 - Campo D,ITA,LAT,10,5
-1,13,WED 11 MAR 2026,Round Robin Session 10 - Sheet A,20:05 Girone Sessione 10 - Campo A,ITA,SWE,4,3
-1,14,WED 11 MAR 2026,Round Robin Session 10 - Sheet B,20:05 Girone Sessione 10 - Campo B,SVK,CAN,6,9
-1,15,WED 11 MAR 2026,Round Robin Session 10 - Sheet C,20:05 Girone Sessione 10 - Campo C,LAT,GBR,8,5
-1,16,WED 11 MAR 2026,Round Robin Session 9 - Sheet A,9:05 Girone Sessione 9 - Campo A,LAT,NOR,5,6
-1,17,WED 11 MAR 2026,Round Robin Session 9 - Sheet B,9:05 Girone Sessione 9 - Campo B,USA,KOR,9,2
-1,18,WED 11 MAR 2026,Round Robin Session 9 - Sheet C,9:05 Girone Sessione 9 - Campo C,SWE,SVK,5,4
-1,19,WED 11 MAR 2026,Round Robin Session 9 - Sheet D,9:05 Girone Sessione 9 - Campo D,GBR,CHN,4,9
-1,20,TUE 10 MAR 2026,Round Robin Session 8 - Sheet A,18:35 Girone Sessione 8 - Campo A,SVK,USA,8,3
-1,21,TUE 10 MAR 2026,Round Robin Session 8 - Sheet B,18:35 Girone Sessione 8 - Campo B,LAT,CHN,5,9
-1,22,TUE 10 MAR 2026,Round Robin Session 8 - Sheet C,18:35 Girone Sessione 8 - Campo C,ITA,NOR,3,9
-1,23,TUE 10 MAR 2026,Round Robin Session 8 - Sheet D,18:35 Girone Sessione 8 - Campo D,SWE,CAN,5,6
-1,24,TUE 10 MAR 2026,Round Robin Session 7 - Sheet B,9:35 Girone Sessione 7 - Campo B,GBR,ITA,6,8
-1,25,TUE 10 MAR 2026,Round Robin Session 7 - Sheet C,9:35 Girone Sessione 7 - Campo C,CHN,CAN,4,9
-1,26,TUE 10 MAR 2026,Round Robin Session 7 - Sheet D,9:35 Girone Sessione 7 - Campo D,KOR,NOR,9,0
-1,27,MON 9 MAR 2026,Round Robin Session 6 - Sheet A,18:35 Girone Sessione 6 - Campo A,NOR,CHN,2,11
-1,28,MON 9 MAR 2026,Round Robin Session 6 - Sheet B,18:35 Girone Sessione 6 - Campo B,KOR,SVK,7,5
-1,29,MON 9 MAR 2026,Round Robin Session 6 - Sheet C,18:35 Girone Sessione 6 - Campo C,GBR,SWE,5,6
-1,30,MON 9 MAR 2026,Round Robin Session 6 - Sheet D,18:35 Girone Sessione 6 - Campo D,USA,LAT,6,8
-1,31,MON 9 MAR 2026,Round Robin Session 5 - Sheet A,9:35 Girone Sessione 5 - Campo A,KOR,GBR,7,6
-1,32,MON 9 MAR 2026,Round Robin Session 5 - Sheet B,9:35 Girone Sessione 5 - Campo B,SWE,USA,1,7
-1,33,MON 9 MAR 2026,Round Robin Session 5 - Sheet C,9:35 Girone Sessione 5 - Campo C,CAN,LAT,11,1
-1,34,MON 9 MAR 2026,Round Robin Session 5 - Sheet D,9:35 Girone Sessione 5 - Campo D,SVK,ITA,0,10
-1,35,SUN 8 MAR 2026,Round Robin Session 4 - Sheet A,18:35 Girone Sessione 4 - Campo A,USA,ITA,10,1
-1,36,SUN 8 MAR 2026,Round Robin Session 4 - Sheet B,18:35 Girone Sessione 4 - Campo B,CAN,NOR,9,2
-1,37,SUN 8 MAR 2026,Round Robin Session 4 - Sheet D,18:35 Girone Sessione 4 - Campo D,CHN,KOR,7,5
-1,38,SUN 8 MAR 2026,Round Robin Session 3 - Sheet A,9:35 Girone Sessione 3 - Campo A,SWE,LAT,10,2
-1,39,SUN 8 MAR 2026,Round Robin Session 3 - Sheet B,9:35 Girone Sessione 3 - Campo B,ITA,CHN,3,5
-1,40,SUN 8 MAR 2026,Round Robin Session 3 - Sheet C,9:35 Girone Sessione 3 - Campo C,SVK,NOR,6,4
-1,41,SUN 8 MAR 2026,Round Robin Session 3 - Sheet D,9:35 Girone Sessione 3 - Campo D,CAN,GBR,5,4
-1,42,SAT 7 MAR 2026,Round Robin Session 2 - Sheet A,18:35 Girone Sessione 2 - Campo A,ITA,CAN,8,9
-1,43,SAT 7 MAR 2026,Round Robin Session 2 - Sheet B,18:35 Girone Sessione 2 - Campo B,USA,GBR,5,6
-1,44,SAT 7 MAR 2026,Round Robin Session 2 - Sheet C,18:35 Girone Sessione 2 - Campo C,SWE,KOR,8,6
-1,45,SAT 7 MAR 2026,Round Robin Session 2 - Sheet D,18:35 Girone Sessione 2 - Campo D,LAT,SVK,9,0
-1,46,SAT 7 MAR 2026,Round Robin Session 1 - Sheet A,9:35 Girone Sessione 1 - Campo A,GBR,SVK,2,9
-1,47,SAT 7 MAR 2026,Round Robin Session 1 - Sheet B,9:35 Girone Sessione 1 - Campo B,KOR,LAT,10,2
-1,48,SAT 7 MAR 2026,Round Robin Session 1 - Sheet C,9:35 Girone Sessione 1 - Campo C,USA,CHN,7,12
-1,49,SAT 7 MAR 2026,Round Robin Session 1 - Sheet D,9:35 Girone Sessione 1 - Campo D,NOR,SWE,2,6
-1,50,WED 11 MAR 2026,Gold Medal Game,14:35 Partita per la medaglia d'oro,CHN,KOR,9,7
-1,51,WED 11 MAR 2026,Bronze Medal Game,14:35 Partita per la medaglia di bronzo,LAT,USA,11,10
-1,52,TUE 10 MAR 2026,Semi-final - Sheet A,14:35 Semifinale - Campo A - piste A,CHN,LAT,8,3
-1,53,TUE 10 MAR 2026,Semi-final - Sheet D,14:35 Semifinale - Campo D - piste D,KOR,USA,6,3
-1,54,MON 9 MAR 2026,Round Robin Session 7 - Sheet A,14:35 Girone Sessione 7 - Campo A,LAT,JPN,10,4
-1,55,MON 9 MAR 2026,Round Robin Session 7 - Sheet B,14:35 Girone Sessione 7 - Campo B,ITA,GBR,11,10
-1,56,MON 9 MAR 2026,Round Robin Session 7 - Sheet C,14:35 Girone Sessione 7 - Campo C,USA,CHN,7,6
-1,57,MON 9 MAR 2026,Round Robin Session 7 - Sheet D,14:35 Girone Sessione 7 - Campo D,KOR,EST,10,0
-1,58,SUN 8 MAR 2026,Round Robin Session 6 - Sheet A,14:35 Girone Sessione 6 - Campo A,GBR,CHN,5,10
-1,59,SUN 8 MAR 2026,Round Robin Session 6 - Sheet B,14:35 Girone Sessione 6 - Campo B,LAT,KOR,5,4
-1,60,SUN 8 MAR 2026,Round Robin Session 6 - Sheet C,14:35 Girone Sessione 6 - Campo C,EST,JPN,3,8
-1,61,SUN 8 MAR 2026,Round Robin Session 6 - Sheet D,14:35 Girone Sessione 6 - Campo D,USA,ITA,7,5
-1,62,SAT 7 MAR 2026,Round Robin Session 5 - Sheet A,14:35 Girone Sessione 5 - Campo A,KOR,USA,10,1
-1,63,SAT 7 MAR 2026,Round Robin Session 5 - Sheet B,14:35 Girone Sessione 5 - Campo B,CHN,EST,12,2
-1,64,SAT 7 MAR 2026,Round Robin Session 5 - Sheet C,14:35 Girone Sessione 5 - Campo C,ITA,LAT,4,9
-1,65,SAT 7 MAR 2026,Round Robin Session 5 - Sheet D,14:35 Girone Sessione 5 - Campo D,JPN,GBR,2,11
-1,66,FRI 6 MAR 2026,Round Robin Session 4 - Sheet A,9:05 Girone Sessione 4 - Campo A,JPN,ITA,6,5
-1,67,FRI 6 MAR 2026,Round Robin Session 4 - Sheet B,9:05 Girone Sessione 4 - Campo B,GBR,USA,5,4
-1,68,FRI 6 MAR 2026,Round Robin Session 4 - Sheet C,9:05 Girone Sessione 4 - Campo C,CHN,KOR,10,6
-1,69,FRI 6 MAR 2026,Round Robin Session 4 - Sheet D,9:05 Girone Sessione 4 - Campo D,EST,LAT,6,9
-1,70,THU 5 MAR 2026,Round Robin Session 3 - Sheet A,19:05 Girone Sessione 3 - Campo A,USA,EST,8,4
-1,71,THU 5 MAR 2026,Round Robin Session 3 - Sheet B,19:05 Girone Sessione 3 - Campo B,KOR,JPN,9,0
-1,72,THU 5 MAR 2026,Round Robin Session 3 - Sheet C,19:05 Girone Sessione 3 - Campo C,LAT,GBR,5,6
-1,73,THU 5 MAR 2026,Round Robin Session 3 - Sheet D,19:05 Girone Sessione 3 - Campo D,ITA,CHN,7,8
-1,74,THU 5 MAR 2026,Round Robin Session 2 - Sheet A,10:05 Girone Sessione 2 - Campo A,CHN,LAT,10,2
-1,75,THU 5 MAR 2026,Round Robin Session 2 - Sheet B,10:05 Girone Sessione 2 - Campo B,EST,ITA,6,4
-1,76,THU 5 MAR 2026,Round Robin Session 2 - Sheet C,10:05 Girone Sessione 2 - Campo C,JPN,USA,7,5
-1,77,THU 5 MAR 2026,Round Robin Session 2 - Sheet D,10:05 Girone Sessione 2 - Campo D,GBR,KOR,3,14
-1,78,WED 4 MAR 2026,Round Robin Session 1 - Sheet A,19:05 Girone Sessione 1 - Campo A,ITA,KOR,7,5
-1,79,WED 4 MAR 2026,Round Robin Session 1 - Sheet B,19:05 Girone Sessione 1 - Campo B,JPN,CHN,3,10
-1,80,WED 4 MAR 2026,Round Robin Session 1 - Sheet C,19:05 Girone Sessione 1 - Campo C,GBR,EST,7,10
-1,81,WED 4 MAR 2026,Round Robin Session 1 - Sheet D,19:05 Girone Sessione 1 - Campo D,LAT,USA,6,11
+1,1,SAT 29 NOV 2025,Gold Medal Game,15:00,SUI,SWE,4,5
+1,2,FRI 28 NOV 2025,Bronze Medal Game,19:00,ITA,SCO,3,9
+1,3,FRI 28 NOV 2025,Semi-final - Sheet A,9:00,SUI,ITA,8,7
+1,4,FRI 28 NOV 2025,Semi-final - Sheet D,9:00,SWE,SCO,8,5
+1,5,THU 27 NOV 2025,Round Robin Session 9 - Sheet A,14:00,CZE,DEN,6,7
+1,6,THU 27 NOV 2025,Round Robin Session 9 - Sheet B,14:00,AUT,SWE,5,7
+1,7,THU 27 NOV 2025,Round Robin Session 9 - Sheet C,14:00,GER,POL,6,5
+1,8,THU 27 NOV 2025,Round Robin Session 9 - Sheet D,14:00,SCO,ITA,8,5
+1,9,THU 27 NOV 2025,Round Robin Session 9 - Sheet E,14:00,SUI,NOR,8,4
+1,10,WED 26 NOV 2025,Round Robin Session 8 - Sheet A,19:00,ITA,SUI,8,9
+1,11,WED 26 NOV 2025,Round Robin Session 8 - Sheet B,19:00,CZE,POL,9,2
+1,12,WED 26 NOV 2025,Round Robin Session 8 - Sheet C,19:00,AUT,DEN,4,6
+1,13,WED 26 NOV 2025,Round Robin Session 8 - Sheet D,19:00,NOR,GER,3,7
+1,14,WED 26 NOV 2025,Round Robin Session 8 - Sheet E,19:00,SWE,SCO,4,11
+1,15,WED 26 NOV 2025,Round Robin Session 7 - Sheet A,9:00,GER,AUT,8,2
+1,16,WED 26 NOV 2025,Round Robin Session 7 - Sheet B,9:00,DEN,SUI,3,9
+1,17,WED 26 NOV 2025,Round Robin Session 7 - Sheet C,9:00,SWE,ITA,4,6
+1,18,WED 26 NOV 2025,Round Robin Session 7 - Sheet D,9:00,POL,SCO,2,7
+1,19,WED 26 NOV 2025,Round Robin Session 7 - Sheet E,9:00,NOR,CZE,4,6
+1,20,TUE 25 NOV 2025,Round Robin Session 6 - Sheet A,14:00,POL,SWE,4,8
+1,21,TUE 25 NOV 2025,Round Robin Session 6 - Sheet B,14:00,SCO,NOR,7,4
+1,22,TUE 25 NOV 2025,Round Robin Session 6 - Sheet C,14:00,CZE,GER,6,9
+1,23,TUE 25 NOV 2025,Round Robin Session 6 - Sheet D,14:00,AUT,SUI,2,10
+1,24,TUE 25 NOV 2025,Round Robin Session 6 - Sheet E,14:00,DEN,ITA,5,7
+1,25,MON 24 NOV 2025,Round Robin Session 5 - Sheet A,20:00,SUI,SCO,4,8
+1,26,MON 24 NOV 2025,Round Robin Session 5 - Sheet B,20:00,POL,ITA,6,9
+1,27,MON 24 NOV 2025,Round Robin Session 5 - Sheet C,20:00,NOR,AUT,9,7
+1,28,MON 24 NOV 2025,Round Robin Session 5 - Sheet D,20:00,GER,DEN,10,2
+1,29,MON 24 NOV 2025,Round Robin Session 5 - Sheet E,20:00,CZE,SWE,2,7
+1,30,MON 24 NOV 2025,Round Robin Session 4 - Sheet A,12:00,AUT,POL,3,12
+1,31,MON 24 NOV 2025,Round Robin Session 4 - Sheet B,12:00,SUI,CZE,10,9
+1,32,MON 24 NOV 2025,Round Robin Session 4 - Sheet C,12:00,DEN,SCO,4,9
+1,33,MON 24 NOV 2025,Round Robin Session 4 - Sheet D,12:00,SWE,NOR,9,5
+1,34,MON 24 NOV 2025,Round Robin Session 4 - Sheet E,12:00,ITA,GER,9,7
+1,35,SUN 23 NOV 2025,Round Robin Session 3 - Sheet A,19:00,SWE,GER,5,3
+1,36,SUN 23 NOV 2025,Round Robin Session 3 - Sheet B,19:00,NOR,DEN,8,3
+1,37,SUN 23 NOV 2025,Round Robin Session 3 - Sheet C,19:00,ITA,CZE,8,9
+1,38,SUN 23 NOV 2025,Round Robin Session 3 - Sheet D,19:00,SUI,POL,9,3
+1,39,SUN 23 NOV 2025,Round Robin Session 3 - Sheet E,19:00,SCO,AUT,7,4
+1,40,SUN 23 NOV 2025,Round Robin Session 2 - Sheet A,9:00,SCO,CZE,10,5
+1,41,SUN 23 NOV 2025,Round Robin Session 2 - Sheet B,9:00,ITA,AUT,10,1
+1,42,SUN 23 NOV 2025,Round Robin Session 2 - Sheet C,9:00,POL,NOR,9,8
+1,43,SUN 23 NOV 2025,Round Robin Session 2 - Sheet D,9:00,DEN,SWE,4,10
+1,44,SUN 23 NOV 2025,Round Robin Session 2 - Sheet E,9:00,GER,SUI,8,6
+1,45,SAT 22 NOV 2025,Round Robin Session 1 - Sheet A,14:30,NOR,ITA,4,9
+1,46,SAT 22 NOV 2025,Round Robin Session 1 - Sheet B,14:30,GER,SCO,7,8
+1,47,SAT 22 NOV 2025,Round Robin Session 1 - Sheet C,14:30,SUI,SWE,8,4
+1,48,SAT 22 NOV 2025,Round Robin Session 1 - Sheet D,14:30,CZE,AUT,8,7
+1,49,SAT 22 NOV 2025,Round Robin Session 1 - Sheet E,14:30,POL,DEN,7,5
