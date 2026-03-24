@@ -12,6 +12,7 @@ from track_stones import (
     apply_tracking,
     evaluate_tracking,
     compare_tracking,
+    displacement_distribution,
     TRACKING_METHODS,
 )
 from extract_shot_data import MAX_STONES_PER_TEAM, STONE_TRACK_MAX_DIST
@@ -492,3 +493,101 @@ class TestCompareTracking:
         assert 0.0 <= result["link_agreement_rate"] <= 1.0
         assert result["fragmentation_index_greedy"] >= 1.0
         assert result["fragmentation_index_hungarian"] >= 1.0
+
+
+# ---------------------------------------------------------------------------
+# displacement_distribution
+# ---------------------------------------------------------------------------
+
+class TestDisplacementDistribution:
+
+    def _tracked_stationary(self):
+        """Two shots, one stone that doesn't move — displacement near zero."""
+        shots = [
+            {"t1": [(0.1, 0.0)], "t2": []},
+            {"t1": [(0.1, 0.0)], "t2": []},
+        ]
+        return apply_tracking(_raw_df([shots]), method="greedy")
+
+    def _tracked_displaced(self, d):
+        """Two shots: stone moves by exactly d in x — displacement = d."""
+        shots = [
+            {"t1": [(0.0, 0.0)], "t2": []},
+            {"t1": [(d, 0.0)],   "t2": []},
+        ]
+        return apply_tracking(_raw_df([shots]), method="greedy")
+
+    def test_returns_required_keys(self):
+        result = displacement_distribution(self._tracked_stationary())
+        for key in (
+            "displacements",
+            "total_links",
+            "threshold_zone_count",
+            "threshold_zone_fraction",
+            "near_zero_fraction",
+            "median_displacement",
+            "p95_displacement",
+        ):
+            assert key in result, f"Missing key: {key}"
+
+    def test_no_links_returns_zeros_and_nan(self):
+        """Single-shot end: no prev_x values exist, so no links."""
+        shots = [{"t1": [(0.1, 0.0)], "t2": []}]
+        df = apply_tracking(_raw_df([shots]), method="greedy")
+        result = displacement_distribution(df)
+        assert result["total_links"] == 0
+        assert math.isnan(result["threshold_zone_fraction"])
+        assert len(result["displacements"]) == 0
+
+    def test_stationary_stone_near_zero_displacement(self):
+        """Stone that does not move should produce displacement ≈ 0."""
+        result = displacement_distribution(self._tracked_stationary())
+        assert result["total_links"] == 1
+        assert result["displacements"][0] == pytest.approx(0.0, abs=1e-4)
+        assert result["near_zero_fraction"] == pytest.approx(1.0)
+
+    def test_displaced_stone_correct_magnitude(self):
+        """Stone displaced by exactly 0.05 in x → displacement = 0.05."""
+        d = 0.05
+        result = displacement_distribution(self._tracked_displaced(d))
+        assert result["total_links"] == 1
+        assert result["displacements"][0] == pytest.approx(d, abs=1e-4)
+
+    def test_threshold_zone_detected(self):
+        """Stone displaced into [0.8*T, T) should count as threshold-zone match."""
+        tz = 0.85 * STONE_TRACK_MAX_DIST  # inside [0.8*T, T)
+        result = displacement_distribution(self._tracked_displaced(tz))
+        assert result["threshold_zone_count"] == 1
+        assert result["threshold_zone_fraction"] == pytest.approx(1.0)
+
+    def test_displacement_beyond_threshold_not_a_link(self):
+        """A displacement beyond STONE_TRACK_MAX_DIST means no match was made,
+        so there are zero links to count."""
+        far = STONE_TRACK_MAX_DIST + 0.05
+        result = displacement_distribution(self._tracked_displaced(far))
+        # The stone was not matched (new ID assigned, prev_x = NaN)
+        assert result["total_links"] == 0
+
+    def test_median_and_p95_populated(self):
+        """With multiple links, median and p95 should be finite values."""
+        shots = [
+            {"t1": [(0.0, 0.0), (0.5, 0.0)], "t2": []},
+            {"t1": [(0.01, 0.0), (0.51, 0.0)], "t2": []},
+            {"t1": [(0.02, 0.0), (0.52, 0.0)], "t2": []},
+        ]
+        df = apply_tracking(_raw_df([shots]), method="greedy")
+        result = displacement_distribution(df)
+        assert result["total_links"] == 4  # 2 stones × 2 mid-end shots
+        assert 0.0 <= result["median_displacement"] <= STONE_TRACK_MAX_DIST
+        assert result["p95_displacement"] >= result["median_displacement"]
+
+    def test_both_teams_counted(self):
+        """Links from team 1 and team 2 are both included."""
+        shots = [
+            {"t1": [(0.1, 0.0)], "t2": [(0.5, 0.0)]},
+            {"t1": [(0.1, 0.0)], "t2": [(0.5, 0.0)]},
+        ]
+        df = apply_tracking(_raw_df([shots]), method="greedy")
+        result = displacement_distribution(df)
+        # 1 link per team = 2 total
+        assert result["total_links"] == 2

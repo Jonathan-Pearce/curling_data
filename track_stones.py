@@ -33,7 +33,12 @@ Outputs:
 
 Evaluation helpers (importable)::
 
-    from track_stones import apply_tracking, evaluate_tracking, compare_tracking
+    from track_stones import (
+        apply_tracking,
+        evaluate_tracking,
+        compare_tracking,
+        displacement_distribution,
+    )
 """
 
 import argparse
@@ -453,6 +458,104 @@ def compare_tracking(tracked_a, tracked_b, method_a="A", method_b="B"):
     }
 
 
+def displacement_distribution(tracked_df):
+    """Compute the distribution of matched-link displacement magnitudes.
+
+    For every stone slot at every non-first shot of an end where the stone was
+    successfully matched to its previous position (``prev_x`` is not NaN),
+    computes:
+
+        d = sqrt((x - prev_x)^2 + (y - prev_y)^2)
+
+    in normalised house-radius units and examines the resulting distribution.
+
+    A well-calibrated tracker produces a **bimodal** distribution:
+
+    - Mode 1 near zero — stones that did not move (rendering jitter only).
+    - Mode 2 large — stones hit hard enough to displace noticeably but still
+      matched within ``STONE_TRACK_MAX_DIST``.
+
+    The **threshold zone** ``[0.8 * T, T)`` where ``T = STONE_TRACK_MAX_DIST``
+    is the most diagnostic region: a clean gap here means the threshold sits
+    between the two modes and is well-calibrated.  A peak in this band means
+    the threshold is inside a dense region and may need retuning.
+
+    Parameters
+    ----------
+    tracked_df : pd.DataFrame
+        Output of :func:`apply_tracking`.  Must contain ``_x``, ``_prev_x``,
+        ``_y``, ``_prev_y`` columns for each stone slot.
+
+    Returns
+    -------
+    dict
+        ``displacements`` : np.ndarray
+            Every matched-link displacement magnitude (length = total_links).
+        ``total_links`` : int
+            Total matched links across all shots and both teams.
+        ``threshold_zone_count`` : int
+            Links with displacement in ``[0.8 * STONE_TRACK_MAX_DIST,
+            STONE_TRACK_MAX_DIST)``.
+        ``threshold_zone_fraction`` : float
+            ``threshold_zone_count / total_links``.  Values above ~0.05 are a
+            warning that the threshold sits inside a dense region of the
+            distribution.
+        ``near_zero_fraction`` : float
+            Fraction of links with displacement < 0.05 (stationary stones,
+            noise-only movement).
+        ``median_displacement`` : float
+            Median of all displacement magnitudes.
+        ``p95_displacement`` : float
+            95th-percentile displacement (characterises the tail of hard hits).
+    """
+    displacements = []
+
+    for ti in (1, 2):
+        for si in range(1, MAX_STONES_PER_TEAM + 1):
+            x_col = f"team{ti}_stone{si}_x"
+            y_col = f"team{ti}_stone{si}_y"
+            px_col = f"team{ti}_stone{si}_prev_x"
+            py_col = f"team{ti}_stone{si}_prev_y"
+            if x_col not in tracked_df.columns or px_col not in tracked_df.columns:
+                break
+            matched = tracked_df[[x_col, y_col, px_col, py_col]].dropna()
+            dx = matched[x_col].to_numpy() - matched[px_col].to_numpy()
+            dy = matched[y_col].to_numpy() - matched[py_col].to_numpy()
+            displacements.append(np.sqrt(dx ** 2 + dy ** 2))
+
+    if displacements:
+        all_d = np.concatenate(displacements)
+    else:
+        all_d = np.array([])
+
+    total = len(all_d)
+    threshold_lo = 0.8 * STONE_TRACK_MAX_DIST
+
+    if total == 0:
+        return {
+            "displacements": all_d,
+            "total_links": 0,
+            "threshold_zone_count": 0,
+            "threshold_zone_fraction": float("nan"),
+            "near_zero_fraction": float("nan"),
+            "median_displacement": float("nan"),
+            "p95_displacement": float("nan"),
+        }
+
+    tz_mask = (all_d >= threshold_lo) & (all_d < STONE_TRACK_MAX_DIST)
+    nz_mask = all_d < 0.05
+
+    return {
+        "displacements": all_d,
+        "total_links": total,
+        "threshold_zone_count": int(tz_mask.sum()),
+        "threshold_zone_fraction": round(float(tz_mask.sum()) / total, 4),
+        "near_zero_fraction": round(float(nz_mask.sum()) / total, 4),
+        "median_displacement": round(float(np.median(all_d)), 4),
+        "p95_displacement": round(float(np.percentile(all_d, 95)), 4),
+    }
+
+
 # ---------------------------------------------------------------------------
 # I/O helpers
 # ---------------------------------------------------------------------------
@@ -524,6 +627,14 @@ def main():
             "and write the --method result. Requires scipy."
         ),
     )
+    parser.add_argument(
+        "--displacement",
+        action="store_true",
+        help=(
+            "Print displacement magnitude distribution metrics after tracking. "
+            "Diagnoses whether STONE_TRACK_MAX_DIST is well-calibrated."
+        ),
+    )
     args = parser.parse_args()
 
     if not os.path.isfile(args.input):
@@ -556,6 +667,28 @@ def main():
         metrics = evaluate_tracking(tracked)
         for k, v in metrics.items():
             print(f"  {k}: {v}")
+
+    if args.displacement:
+        print("\nDisplacement distribution metrics:")
+        disp = displacement_distribution(tracked)
+        for k, v in disp.items():
+            if k == "displacements":
+                print(f"  displacements: array of {len(v)} values")
+            else:
+                print(f"  {k}: {v}")
+        pct = disp["threshold_zone_fraction"]
+        if not (pct != pct):  # NaN check
+            if pct > 0.05:
+                print(
+                    f"  WARNING: {pct:.1%} of matched links fall in the threshold zone "
+                    f"[{0.8 * STONE_TRACK_MAX_DIST:.3f}, {STONE_TRACK_MAX_DIST:.3f}). "
+                    "Consider retuning STONE_TRACK_MAX_DIST."
+                )
+            else:
+                print(
+                    f"  OK: threshold zone fraction {pct:.1%} is below 5% — "
+                    "threshold appears well-calibrated."
+                )
 
     _write_tracked(tracked, args.output_dir, args.method)
 
