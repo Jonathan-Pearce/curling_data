@@ -197,10 +197,15 @@ def apply_tracking(raw_df, method="greedy"):
     Returns
     -------
     pd.DataFrame
-        Copy of *raw_df* with three tracking columns appended per stone slot:
+        Copy of *raw_df* with four tracking columns appended per stone slot:
         ``team{N}_stone{S}_id``, ``team{N}_stone{S}_prev_x``,
-        ``team{N}_stone{S}_prev_y``.  Values are ``NaN`` for empty slots and
-        for the first shot of each end (no prior state).
+        ``team{N}_stone{S}_prev_y``, ``team{N}_stone{S}_is_shot_stone``.
+        Values are ``NaN`` for empty slots and for the first shot of each end
+        (no prior state).  ``is_shot_stone`` is ``True`` for the one stone
+        that was just delivered, ``False`` for all other occupied stones, and
+        ``NaN`` when the delivered stone cannot be identified unambiguously
+        (first shot of end, or tracking fragmentation produced zero or
+        multiple newly-placed stones in a single shot).
     """
     if method not in _TRACK_FN:
         raise ValueError(
@@ -215,7 +220,7 @@ def apply_tracking(raw_df, method="greedy"):
     for ti in (1, 2):
         for si in range(1, MAX_STONES_PER_TEAM + 1):
             prefix = f"team{ti}_stone{si}"
-            for suffix in ("_id", "_prev_x", "_prev_y"):
+            for suffix in ("_id", "_prev_x", "_prev_y", "_is_shot_stone"):
                 col = prefix + suffix
                 df[col] = np.nan
                 tracking_cols.append(col)
@@ -228,6 +233,7 @@ def apply_tracking(raw_df, method="greedy"):
 
         for row_pos in end_view.index:
             row = df.loc[row_pos]
+            matched_by_team = {}
             for ti in (1, 2):
                 n = int(row[f"team{ti}_stones_in_play"] or 0)
                 curr_stones = []
@@ -240,6 +246,7 @@ def apply_tracking(raw_df, method="greedy"):
                 matched, track_state[ti] = track_fn(
                     track_state[ti], curr_stones, stone_id_counter
                 )
+                matched_by_team[ti] = matched
 
                 for slot_idx, (sid, nx, ny, prev_x, prev_y) in enumerate(matched):
                     si = slot_idx + 1
@@ -249,6 +256,28 @@ def apply_tracking(raw_df, method="greedy"):
                         df.at[row_pos, f"{prefix}_prev_x"] = round(prev_x, 3)
                     if prev_y is not None:
                         df.at[row_pos, f"{prefix}_prev_y"] = round(prev_y, 3)
+
+            # Assign is_shot_stone flag.
+            # First shot of end: no prior state, all flags remain NaN.
+            # Mid-end: the one newly placed stone (prev_x is None) is the
+            # delivered stone.  If exactly one such stone exists across both
+            # teams, flag it True and all other occupied stones False.
+            # If zero or more than one: ambiguous — leave NaN.
+            if int(row["shot_number"]) > 1:
+                new_slots = [
+                    (ti, slot_idx + 1)
+                    for ti in (1, 2)
+                    for slot_idx, (_sid, _nx, _ny, prev_x, _prev_y)
+                    in enumerate(matched_by_team[ti])
+                    if prev_x is None
+                ]
+                if len(new_slots) == 1:
+                    shot_ti, shot_si = new_slots[0]
+                    for ti in (1, 2):
+                        for slot_idx in range(len(matched_by_team[ti])):
+                            si = slot_idx + 1
+                            is_shot = bool(ti == shot_ti and si == shot_si)
+                            df.at[row_pos, f"team{ti}_stone{si}_is_shot_stone"] = is_shot
 
     return df
 
@@ -573,10 +602,10 @@ def _write_tracked(df, output_dir, method):
 
     # Column order: base fields, raw stone fields, then tracking fields
     base_and_raw = [c for c in df.columns if not any(
-        c.endswith(s) for s in ("_id", "_prev_x", "_prev_y")
+        c.endswith(s) for s in ("_id", "_prev_x", "_prev_y", "_is_shot_stone")
     )]
     tracking = [c for c in df.columns if any(
-        c.endswith(s) for s in ("_id", "_prev_x", "_prev_y")
+        c.endswith(s) for s in ("_id", "_prev_x", "_prev_y", "_is_shot_stone")
     )]
     ordered = base_and_raw + tracking
     df = df[[c for c in ordered if c in df.columns]]

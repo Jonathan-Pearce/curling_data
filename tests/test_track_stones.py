@@ -259,6 +259,7 @@ class TestApplyTracking:
                 assert f"{prefix}_id" in result.columns
                 assert f"{prefix}_prev_x" in result.columns
                 assert f"{prefix}_prev_y" in result.columns
+                assert f"{prefix}_is_shot_stone" in result.columns
 
     @pytest.mark.parametrize("method", TRACKING_METHODS)
     def test_first_shot_has_no_prev(self, method):
@@ -591,3 +592,94 @@ class TestDisplacementDistribution:
         result = displacement_distribution(df)
         # 1 link per team = 2 total
         assert result["total_links"] == 2
+
+
+# ---------------------------------------------------------------------------
+# is_shot_stone flag
+# ---------------------------------------------------------------------------
+
+class TestIsShotStone:
+
+    @pytest.mark.parametrize("method", TRACKING_METHODS)
+    def test_first_shot_all_nan(self, method):
+        """First shot of an end: all is_shot_stone flags are NaN (ambiguous)."""
+        shots = [{"t1": [(0.1, 0.0)], "t2": [(0.5, 0.0)]}]
+        df = apply_tracking(_raw_df([shots]), method=method)
+        assert pd.isna(df.loc[0, "team1_stone1_is_shot_stone"])
+        assert pd.isna(df.loc[0, "team2_stone1_is_shot_stone"])
+
+    @pytest.mark.parametrize("method", TRACKING_METHODS)
+    def test_delivered_stone_flagged_true(self, method):
+        """At shot 2, the newly added stone is the shot stone (True)."""
+        shots = [
+            {"t1": [(0.1, 0.0)], "t2": []},
+            {"t1": [(0.1, 0.0), (0.5, 0.0)], "t2": []},
+        ]
+        df = apply_tracking(_raw_df([shots]), method=method)
+        row = df.loc[1]
+        # Stone that was already in play: False
+        assert row["team1_stone1_is_shot_stone"] == False
+        # Newly delivered stone: True
+        assert row["team1_stone2_is_shot_stone"] == True
+
+    @pytest.mark.parametrize("method", TRACKING_METHODS)
+    def test_carried_stones_flagged_false(self, method):
+        """Stones present before this shot are flagged False, not NaN."""
+        shots = [
+            {"t1": [(0.1, 0.0), (0.3, 0.0)], "t2": []},
+            {"t1": [(0.1, 0.0), (0.3, 0.0), (0.6, 0.0)], "t2": []},
+        ]
+        df = apply_tracking(_raw_df([shots]), method=method)
+        row = df.loc[1]
+        assert row["team1_stone1_is_shot_stone"] == False
+        assert row["team1_stone2_is_shot_stone"] == False
+        assert row["team1_stone3_is_shot_stone"] == True
+
+    @pytest.mark.parametrize("method", TRACKING_METHODS)
+    def test_empty_slots_remain_nan(self, method):
+        """Unoccupied slots stay NaN even at mid-end shots."""
+        shots = [
+            {"t1": [(0.1, 0.0)], "t2": []},
+            {"t1": [(0.1, 0.0), (0.5, 0.0)], "t2": []},
+        ]
+        df = apply_tracking(_raw_df([shots]), method=method)
+        # Slot 3+ are empty
+        assert pd.isna(df.loc[1, "team1_stone3_is_shot_stone"])
+
+    @pytest.mark.parametrize("method", TRACKING_METHODS)
+    def test_takeout_delivered_stone_flagged(self, method):
+        """Take-out: opponent loses a stone, shooting team's new stone is flagged."""
+        shots = [
+            {"t1": [(0.1, 0.0)], "t2": [(0.2, 0.0)]},
+            # t1 delivers a second stone, t2's stone is knocked out
+            {"t1": [(0.1, 0.0), (0.5, 0.0)], "t2": []},
+        ]
+        df = apply_tracking(_raw_df([shots]), method=method)
+        row = df.loc[1]
+        # The new t1 stone is the shot stone
+        assert row["team1_stone2_is_shot_stone"] == True
+        assert row["team1_stone1_is_shot_stone"] == False
+
+    @pytest.mark.parametrize("method", TRACKING_METHODS)
+    def test_end_boundary_resets_flag(self, method):
+        """First shot of a new end gets NaN flags regardless of prior end."""
+        end1 = [
+            {"t1": [(0.1, 0.0)], "t2": []},
+            {"t1": [(0.1, 0.0), (0.5, 0.0)], "t2": []},
+        ]
+        end2 = [{"t1": [(0.3, 0.0)], "t2": []}]
+        df = apply_tracking(_raw_df([end1, end2]), method=method)
+        # Row index 2 is the first shot of end 2
+        assert pd.isna(df.loc[2, "team1_stone1_is_shot_stone"])
+
+    @pytest.mark.parametrize("method", TRACKING_METHODS)
+    def test_ambiguous_zero_new_stones_all_nan(self, method):
+        """Through shot: stone doesn't stay; no new stone → all flags NaN."""
+        shots = [
+            {"t1": [(0.1, 0.0)], "t2": []},
+            # Same stone count, same position — 0 new stones this shot
+            {"t1": [(0.1, 0.0)], "t2": []},
+        ]
+        df = apply_tracking(_raw_df([shots]), method=method)
+        # 0 newly placed stones: ambiguous
+        assert pd.isna(df.loc[1, "team1_stone1_is_shot_stone"])
