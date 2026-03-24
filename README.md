@@ -4,14 +4,16 @@ Extract shot-by-shot curling data from tournament PDF result books.
 
 ## Overview
 
-This tool parses curling tournament PDF files to extract structured data about every shot in every end of every match, including:
+This project scrapes and processes curling tournament PDF result books to build a structured, analysis-ready dataset covering every shot thrown in every end of every match. Data is sourced from [curlit.com](https://curlit.com/results), which hosts result books for World Curling Federation events dating back to 2013.
 
+Key outputs:
 - **Match metadata** (date, round, teams, final scores)
-- **End metadata** (end number, scores, hammer team, time remaining)
+- **End metadata** (end number, scores, hammer team, thinking time remaining)
 - **Shot metadata** (player, shot type, turn direction, accuracy percentage)
 - **Stone positions** detected via OpenCV colour segmentation, normalised relative to the house centre
+- **Stone tracking** across shots within an end via stable stone IDs and previous-position columns
 
-PDFs are fetched directly from URLs (e.g. [curlit.com](https://curlit.com/results)) at runtime, so there is no need to store large PDF files in the repository. Multiple events can be processed together, producing unified data tables with an `event_id` to distinguish between tournaments.
+PDFs are fetched directly from URLs at runtime — no large PDF files need to be stored in the repository. Multiple events are processed together, producing unified data tables with an `event_id` to distinguish between tournaments.
 
 ## Requirements
 
@@ -29,21 +31,24 @@ pip install -r requirements.txt
 ```
 curling_data/
 ├── output/                         # Generated data tables
-│   ├── result_urls.csv             # Tournament PDF URL index
+│   ├── result_urls.csv             # Tournament PDF URL index (from scrape_results.py)
 │   ├── events.csv
 │   ├── matches.csv
 │   ├── teams.csv
 │   ├── players.csv
 │   ├── ends.csv
-│   ├── shot_locations.csv
-│   └── shot_locations.parquet
+│   └── shot_locations.parquet      # Primary shot data (binary; CSV is gitignored)
 ├── tests/
 │   ├── test_extract_shot_data.py
 │   ├── test_generate_board_image.py
 │   ├── test_scrape_results.py
 │   └── test_verify_stone_tracking.py
+├── docs/                           # Reference documentation and development notes
+│   ├── data_quality_audit.md       # Data quality findings and re-scrape verification
+│   ├── scraping_improvements.md    # Proposals for pipeline improvements
+│   ├── stone_location_accuracy_improvements.md
+│   └── tracking_verification_guide.md
 ├── example raw data/               # Sample PDFs used by integration tests
-├── agent_notes/                    # Development notes and data quality audits
 ├── investigations/                 # Exploratory analysis notebooks
 ├── extract_shot_data.py            # Main extraction script
 ├── scrape_results.py               # Scrapes curlit.com for tournament PDF URLs
@@ -131,7 +136,7 @@ img.show()
 
 ## Output Tables
 
-The script produces six CSV files in the output directory:
+The extraction script writes six tables to the output directory. Five are plain CSV files; the sixth (`shot_locations`) is written as both a CSV (gitignored) and a Parquet file for efficient loading.
 
 ### `events.csv`
 | Column | Description |
@@ -186,7 +191,9 @@ The script produces six CSV files in the output directory:
 | hammer_team_code | Team with last-stone advantage (hammer) |
 | team1_time_left, team2_time_left | Thinking time remaining |
 
-### `shot_locations.csv`
+### `shot_locations` (parquet)
+
+> **Note:** `shot_locations.parquet` is the primary output. A parallel `shot_locations.csv` is also written for convenience but is gitignored due to its size.
 | Column | Description |
 |--------|-------------|
 | event_id | Event identifier |
@@ -199,7 +206,7 @@ The script produces six CSV files in the output directory:
 | shot_type | Shot type (e.g., Draw, Take-out, Guard, Hit and Roll) |
 | turn | Turn direction (Clockwise, Counter-clockwise, Not considered) |
 | accuracy | Shot accuracy percentage |
-| house_orientation | Page orientation used for this shot image (`normal` or `flipped`) |
+| house_orientation | Which half of the shot image contains the house (`top` or `bottom`) |
 | team1_stones_in_play | Number of team 1 stones in play after this shot |
 | team2_stones_in_play | Number of team 2 stones in play after this shot |
 | team1_stone1_x … team1_stone8_x | Normalised x-coordinate for each team 1 stone |
@@ -230,8 +237,53 @@ Both Cartesian (x, y) and polar (dist, angle) representations are included to su
 
 ## Future Considerations
 
-- **Event metadata enrichment**: Add fields like location, competition level, gender category, and date range to `events.csv`.
-- **Database backend**: Migrate from flat CSV files to a relational database (e.g., SQLite or PostgreSQL) for better querying and referential integrity.
-- **Incremental processing**: Skip PDFs that have already been processed, supporting append-only workflows.
-- **Configuration file**: Use a YAML/JSON config to define event metadata (name, gender, year) alongside each PDF path.
-- **Automated PDF ingestion**: Watch a directory for new PDFs and process them automatically.
+- **Database backend**: Migrate from flat CSV/Parquet files to a relational database (e.g., SQLite or PostgreSQL) for better querying and referential integrity.
+- **Incremental processing**: Skip PDFs that have already been processed, supporting append-only workflows for newly published events.
+- **Configuration file**: Use a YAML/JSON config to supply per-event metadata (name, gender, year) alongside each PDF path, avoiding reliance on filename parsing.
+- **Ghost stone recording**: Record the outline-ring contours (displaced stone ghosts visible in PDF diagrams) as separate columns to provide displacement-origin features for downstream analysis.
+- **Mixed-gender events**: Some event PDFs contain both men's and women's draws in a single file. Add logic to split and label them independently.
+- **ML pipeline** (see [Issue #11](https://github.com/Jonathan-Pearce/curling_data/issues/11)): Implement the proposed Siamese GNN model for multi-task shot prediction (end score, accuracy, shot type) using the scraped dataset.
+
+---
+
+## Project Status
+
+### Completed
+
+| Issue | Description |
+|-------|-------------|
+| [#1](https://github.com/Jonathan-Pearce/curling_data/issues/1) | Core PDF scraping: match/end/shot extraction from result books |
+| [#3](https://github.com/Jonathan-Pearce/curling_data/issues/3) | Multi-event support with `event_id` and `events.csv` |
+| [#5](https://github.com/Jonathan-Pearce/curling_data/issues/5) | URL-based PDF ingestion; no raw PDFs stored in the repo |
+| [#7](https://github.com/Jonathan-Pearce/curling_data/issues/7) | `scrape_results.py` — automated tournament URL index from curlit.com |
+| [#9](https://github.com/Jonathan-Pearce/curling_data/issues/9) | Bulk extraction of all events from `result_urls.csv` |
+| [#13](https://github.com/Jonathan-Pearce/curling_data/issues/13) | `generate_board_image.py` — recreate board diagrams for visual QA |
+| Data quality | `has_time_data` flag in `events.csv`; ghost-stone filtering; `turn = "Not considered"` for Through shots |
+| Stone tracking | Sequential stone-ID assignment and `prev_x`/`prev_y` propagation across shots within an end |
+| Accuracy improvements | Dynamic house-radius detection, adaptive ring-colour thresholds, per-page stone-colour calibration |
+
+### Open
+
+| Issue | Description |
+|-------|-------------|
+| [#11](https://github.com/Jonathan-Pearce/curling_data/issues/11) | **ML pipeline** — Siamese GNN for multi-task shot prediction (not yet started) |
+| [#15](https://github.com/Jonathan-Pearce/curling_data/issues/15) | **General improvements** — ghost stone columns, code modularisation, final scraping review |
+
+---
+
+## Recommended Next Steps
+
+The data pipeline is mature and the dataset covers ~260 World Curling events (2013–2026). The natural next step is building the **ML pipeline** described in [Issue #11](https://github.com/Jonathan-Pearce/curling_data/issues/11):
+
+1. **Build a GNN-based shot-prediction model** (Siamese architecture, multi-task head):
+   - Input: board state before and after a shot (`S_{t-1}`, `S_t`) represented as graphs, plus metadata (shot number, end number, score, hammer)
+   - Outputs: shot accuracy (regression), shot type (classification), end score (regression)
+   - The stable `stone_id` and `prev_x`/`prev_y` columns already in the parquet provide the node-identity continuity a GNN needs
+
+2. **Ghost stone columns** — implement `docs/scraping_improvements.md` Improvement 1 to record displaced-stone origin positions, unlocking richer displacement-vector features.
+
+3. **Incremental scraping** — add skip-if-seen logic so new events can be appended without re-processing the entire URL list.
+
+4. **Mixed-gender PDF splitting** — handle the small subset of PDFs that bundle men's and women's draws, ensuring all events are labelled with the correct `gender` code.
+
+See `docs/` for detailed implementation notes on each of these areas.

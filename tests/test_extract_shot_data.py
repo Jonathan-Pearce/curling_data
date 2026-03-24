@@ -523,7 +523,7 @@ class TestWithPDF:
 
         with open(os.path.join(output_dir, "ends.csv")) as f:
             ends = list(csv.DictReader(f))
-        assert len(ends) == 437
+        assert len(ends) == 446
         assert ends[0]["event_id"] == "1"
 
         with open(os.path.join(output_dir, "shot_locations.csv")) as f:
