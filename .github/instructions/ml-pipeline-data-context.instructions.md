@@ -55,6 +55,30 @@ Always read `shot_locations` from the **parquet** file, not any CSV. The CSV is 
 | `team1_stone{N}_prev_y` | float/NULL | y position at previous shot (NULL if newly placed). |
 | `team2_stone{N}_*` | float/NULL | Same columns for team2 (N = 1…8) |
 
+### Ghost stone columns (improvement #12)
+
+Ghost positions are outline rings in the shot diagram marking where a displaced stone was
+*before* the current shot. Not all PDF templates emit coloured ghost rings; rows with no
+ghosts detected carry 0 in the count column and NULL in the coordinate columns.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `team1_ghosts_in_play` | int | Count of team1 ghost rings detected (0–8) |
+| `team1_ghost{N}_x` | float/NULL | N = 1…8; x position normalised to house-radius units |
+| `team1_ghost{N}_y` | float/NULL | y position |
+| `team1_ghost{N}_dist` | float/NULL | Euclidean distance from house centre |
+| `team1_ghost{N}_angle` | float/NULL | Angle in degrees (atan2) from house centre |
+| `team2_ghosts_in_play` | int | Same for team2 |
+| `team2_ghost{N}_*` | float/NULL | Same columns for team2 (N = 1…8) |
+
+Ghosts within each team are sorted ascending by distance. The displacement vector of a
+displaced stone can be estimated as:
+```python
+dx = row["teamN_stoneM_x"] - row["teamN_ghostK_x"]
+dy = row["teamN_stoneM_y"] - row["teamN_ghostK_y"]
+```
+(matching stone to nearest ghost by position after the shot).
+
 Stones within each team are **sorted ascending by distance** from the house centre.
 NULL entries beyond `team{N}_stones_in_play` are empty cells, not zeroes.
 

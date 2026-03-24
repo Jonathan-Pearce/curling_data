@@ -14,6 +14,8 @@ feasibility and the expected impact on a downstream Graph Neural Network (GNN) m
 
 ## Improvement 1 — Ghost Stone Position Recording
 
+**Status: ✅ Complete**
+
 ### What it is
 
 Rather than simply discarding outline-ring contours (fill ratio < `STONE_MIN_FILL_RATIO`),
@@ -26,21 +28,21 @@ and provide the origin position of the displaced stone.
 
 ### Implementation
 
-The fill-ratio guard in `_detect_stones_in_crop()` already identifies outline rings as a
-side effect of rejecting them. The change splits the `_extract()` closure into two return
-lists — `filled` (active stones, existing behaviour) and `outline` (ghost positions, new).
+The `_extract()` closure in `_detect_stones_in_crop()` now returns `(filled, ghosts)` instead
+of a single list. The fill-ratio threshold still separates active stones from outline rings,
+but ghost ring centroids are computed via pixel-moment centroid (same as active stones) and
+recorded instead of discarded. `_detect_stones_in_crop()` returns a 5-tuple:
+`(red_filled, red_ghosts, yellow_filled, yellow_ghosts, orientation)`.
 
-Schema additions:
+Schema additions (in `shot_locations_raw.csv` and `shot_locations.parquet`):
 
 | Column | Type | Notes |
 |--------|------|-------|
-| `team{N}_ghost_stones` | int | Count of ghost ring contours detected (0–8) |
-| `team{N}_ghost_stone{M}_x` | float/NULL | M = 1…8; normalised x position |
-| `team{N}_ghost_stone{M}_y` | float/NULL | Normalised y position |
-| `team{N}_ghost_stone{M}_dist` | float/NULL | Distance from house centre |
-| `team{N}_ghost_stone{M}_angle` | float/NULL | Angle from house centre (degrees) |
-
-**Effort:** Low–Medium (no architectural change; new columns + test coverage).
+| `team{N}_ghosts_in_play` | int | Count of ghost ring contours detected (0–8) |
+| `team{N}_ghost{M}_x` | float/NULL | M = 1…8; normalised x position |
+| `team{N}_ghost{M}_y` | float/NULL | Normalised y position |
+| `team{N}_ghost{M}_dist` | float/NULL | Distance from house centre |
+| `team{N}_ghost{M}_angle` | float/NULL | Angle from house centre (degrees) |
 
 **Caveat:** Not all event PDF templates emit coloured ghost rings for displaced stones.
 Grey-outline variants are already rejected upstream by the HSV saturation filter and will

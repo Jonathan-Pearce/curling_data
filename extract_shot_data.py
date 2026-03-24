@@ -121,6 +121,12 @@ MAX_STONES_PER_TEAM = 8
 # units, so this threshold cleanly separates noise from true movement.
 STONE_TRACK_MAX_DIST = 0.13
 
+# Minimum separation (normalised units) between two accepted active-stone
+# detections.  When two contours are closer than this, only the one nearer
+# to the house centre is kept (improvement #13: deduplication of overlapping
+# detections caused by PDF rendering splitting one stone into two blobs).
+STONE_DEDUP_RADIUS = 0.08
+
 # ---------------------------------------------------------------------------
 # URL / PDF helpers
 # ---------------------------------------------------------------------------
@@ -540,8 +546,8 @@ def _detect_house_center(crop_bgr):
             minDist=max(40, h // 8),
             param1=100,
             param2=30,
-            minRadius=int(HOUSE_RADIUS * 0.6),
-            maxRadius=int(HOUSE_RADIUS * 1.4),
+            minRadius=int(HOUSE_RADIUS * 0.5),
+            maxRadius=int(HOUSE_RADIUS * 1.6),
         )
         if circles is not None and len(circles[0]) > 0:
             circle_candidates = np.asarray(circles[0], dtype=float)
@@ -598,11 +604,15 @@ def _calibrate_stone_colors(page_bgr, page):
     team plays red stones and which plays yellow stones.  Sampling the dominant
     hue from those indicators allows the stone-detection thresholds to
     self-calibrate for events that render stones in slightly different shades
-    (improvement #3).
+    (improvements #3 and #11).
 
-    Only the yellow range is calibrated; red hue is stable across events and
-    the static dual-range constants are kept for it.  Falls back to all static
-    constants if indicator images cannot be found or sampled reliably.
+    Both yellow and red ranges are calibrated from their respective indicator
+    images.  The median (not mean) of sampled hues is used so that a single
+    outlier indicator cannot shift the window off the true stone colour
+    (improvement #14).  Red hue wraps at the 0/180 boundary in OpenCV HSV;
+    two sub-ranges are built to straddle whichever side the sampled hue falls
+    on (improvement #11).  Falls back to static constants per-channel if no
+    indicator images of that colour can be found or sampled reliably.
 
     Parameters
     ----------
@@ -635,6 +645,7 @@ def _calibrate_stone_colors(page_bgr, page):
 
     h_pg, w_pg = page_bgr.shape[:2]
     yellow_hues = []
+    red_hues = []
 
     for img_meta in candidates:
         x0 = max(0, int(img_meta["x0"] * SCALE))
@@ -658,27 +669,70 @@ def _calibrate_stone_colors(page_bgr, page):
             continue
 
         median_hue = float(np.median(hues))
-        # Classify: yellow/orange range H 10–50; ignore red (H ≤ 15 or ≥ 165)
+        # Classify: yellow/orange range H 10–50; red range H ≤ 15 or H ≥ 165
         if 10 <= median_hue <= 50:
             yellow_hues.append(median_hue)
+        elif median_hue <= 15 or median_hue >= 165:
+            red_hues.append(median_hue)
 
-    if not yellow_hues:
+    if not yellow_hues and not red_hues:
         return _static
 
-    # Build a calibrated yellow range centred on the indicator's dominant hue.
-    y_h = float(np.mean(yellow_hues))
-    yellow_lower = np.array(
-        [max(0, int(y_h - STONE_COLOR_HUE_TOL)), int(YELLOW_LOWER[1]), int(YELLOW_LOWER[2])],
-        dtype=np.uint8,
-    )
-    yellow_upper = np.array(
-        [min(180, int(y_h + STONE_COLOR_HUE_TOL)), int(YELLOW_UPPER[1]), 255],
-        dtype=np.uint8,
-    )
-    return (
-        RED_LOWER_1, RED_UPPER_1, RED_LOWER_2, RED_UPPER_2,
-        yellow_lower, yellow_upper,
-    )
+    # ---- Yellow calibration (improvement #3) --------------------------------
+    # Use median instead of mean so a single outlier indicator cannot skew
+    # the centre hue off target (improvement #14).
+    if yellow_hues:
+        y_h = float(np.median(yellow_hues))
+        yellow_lower = np.array(
+            [max(0, int(y_h - STONE_COLOR_HUE_TOL)), int(YELLOW_LOWER[1]), int(YELLOW_LOWER[2])],
+            dtype=np.uint8,
+        )
+        yellow_upper = np.array(
+            [min(180, int(y_h + STONE_COLOR_HUE_TOL)), int(YELLOW_UPPER[1]), 255],
+            dtype=np.uint8,
+        )
+    else:
+        yellow_lower, yellow_upper = YELLOW_LOWER, YELLOW_UPPER
+
+    # ---- Red calibration (improvement #11) ----------------------------------
+    # Red hue wraps at the 0/180 boundary in OpenCV HSV.  Build two sub-ranges
+    # that straddle whichever side of the boundary the sampled hue falls on.
+    if red_hues:
+        r_h = float(np.median(red_hues))
+        r_lo_val = int(r_h - STONE_COLOR_HUE_TOL)
+        r_hi_val = int(r_h + STONE_COLOR_HUE_TOL)
+        # Primary sub-range (clamped to [0, 180])
+        red_lower_1 = np.array(
+            [max(0, r_lo_val), int(RED_LOWER_1[1]), int(RED_LOWER_1[2])],
+            dtype=np.uint8,
+        )
+        red_upper_1 = np.array(
+            [min(180, r_hi_val), int(RED_UPPER_1[1]), 255],
+            dtype=np.uint8,
+        )
+        # Wrap-around sub-range: covers the opposite side of the 0/180 boundary
+        if r_lo_val < 0:
+            # r_h is near 0; wrap covers the top end (near 180)
+            red_lower_2 = np.array(
+                [180 + r_lo_val, int(RED_LOWER_2[1]), int(RED_LOWER_2[2])],
+                dtype=np.uint8,
+            )
+            red_upper_2 = np.array([180, int(RED_UPPER_2[1]), 255], dtype=np.uint8)
+        elif r_hi_val > 180:
+            # r_h is near 180; wrap covers the bottom end (near 0)
+            red_lower_2 = np.array([0, int(RED_LOWER_2[1]), int(RED_LOWER_2[2])], dtype=np.uint8)
+            red_upper_2 = np.array(
+                [r_hi_val - 180, int(RED_UPPER_2[1]), 255],
+                dtype=np.uint8,
+            )
+        else:
+            # No wraparound needed; keep static secondary range as fallback
+            red_lower_2, red_upper_2 = RED_LOWER_2, RED_UPPER_2
+    else:
+        red_lower_1, red_upper_1 = RED_LOWER_1, RED_UPPER_1
+        red_lower_2, red_upper_2 = RED_LOWER_2, RED_UPPER_2
+
+    return (red_lower_1, red_upper_1, red_lower_2, red_upper_2, yellow_lower, yellow_upper)
 
 
 def _detect_stones_in_crop(crop_bgr, color_ranges=None):
@@ -699,12 +753,14 @@ def _detect_stones_in_crop(crop_bgr, color_ranges=None):
 
     Returns
     -------
-    tuple (red_stones, yellow_stones, orientation)
-        Each stone list contains ``(norm_x, norm_y, distance, angle_deg)``
-        tuples sorted ascending by distance from the house centre.
-        Coordinates are normalised to ``house_radius`` units (1.0 = 12-foot
-        ring boundary) using the *dynamically detected* radius (improvement #1).
-        ``orientation`` is ``'top'`` or ``'bottom'``.
+    tuple (red_stones, red_ghosts, yellow_stones, yellow_ghosts, orientation)
+        ``red_stones`` / ``yellow_stones`` are active-stone lists; each entry
+        is ``(norm_x, norm_y, distance, angle_deg)`` sorted ascending by
+        distance from the house centre.  ``red_ghosts`` / ``yellow_ghosts``
+        contain the same tuple format for outline-ring ghost positions
+        (improvement #12).  Coordinates are normalised to ``house_radius``
+        units (1.0 = 12-foot ring boundary) using the dynamically detected
+        radius (improvement #1).  ``orientation`` is ``'top'`` or ``'bottom'``.
     """
     hsv = cv2.cvtColor(crop_bgr, cv2.COLOR_BGR2HSV)
     h, w = crop_bgr.shape[:2]
@@ -745,49 +801,83 @@ def _detect_stones_in_crop(crop_bgr, color_ranges=None):
     mask_yellow = cv2.morphologyEx(mask_yellow, cv2.MORPH_CLOSE, kernel)
 
     def _extract(mask):
+        """Return (filled_stones, ghost_stones) for one colour mask.
+
+        ``filled_stones`` are active stones (high fill ratio); ``ghost_stones``
+        are outline-ring contours marking the pre-shot position of displaced
+        stones (improvement #12).  Both lists contain
+        ``(nx, ny, dist, angle)`` tuples sorted ascending by distance.
+        Duplicate active-stone detections closer than ``STONE_DEDUP_RADIUS``
+        are collapsed to the nearer detection (improvement #13).
+        """
         contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        stones = []
+        filled = []
+        ghosts = []
         for c in contours:
             area = cv2.contourArea(c)
-            if min_area < area < max_area:
-                # Reject outline-only "ghost" markers.  Count actual colored
-                # pixels in the contour's bounding rect and compare to the
-                # contour area.  Filled stones have ratio ≈ 1.0; outline rings
-                # have ratio << STONE_MIN_FILL_RATIO.
-                x, y, w_c, h_c = cv2.boundingRect(c)
-                stone_mask = mask[y:y + h_c, x:x + w_c]
-                colored_pixels = cv2.countNonZero(stone_mask)
-                if colored_pixels / area < STONE_MIN_FILL_RATIO:
-                    continue
-                # Use filled-pixel centroid for more accurate sub-pixel
-                # position (improvement #6)
-                Mpx = cv2.moments(stone_mask)
-                if Mpx["m00"] > 0:
-                    sx = x + Mpx["m10"] / Mpx["m00"]
-                    sy = y + Mpx["m01"] / Mpx["m00"]
-                else:
-                    # Fallback to contour polygon moments
-                    Mc = cv2.moments(c)
-                    if Mc["m00"] == 0:
-                        continue
-                    sx = Mc["m10"] / Mc["m00"]
-                    sy = Mc["m01"] / Mc["m00"]
-                # When the house is at the bottom the view is rotated 180°,
-                # so both axes are mirrored relative to the standard orientation.
-                # Normalise using the dynamically detected ring radius (#1).
-                if orientation == "top":
-                    nx = (sx - house_cx) / house_radius
-                    ny = (sy - house_cy) / house_radius
-                else:
-                    nx = (house_cx - sx) / house_radius
-                    ny = (house_cy - sy) / house_radius
-                dist = math.sqrt(nx * nx + ny * ny)
-                angle = math.degrees(math.atan2(ny, nx))
-                stones.append((nx, ny, dist, angle))
-        stones.sort(key=lambda s: s[2])
-        return stones
+            if not (min_area < area < max_area):
+                continue
 
-    return _extract(mask_red), _extract(mask_yellow), orientation
+            x, y, w_c, h_c = cv2.boundingRect(c)
+            stone_mask = mask[y:y + h_c, x:x + w_c]
+            colored_pixels = cv2.countNonZero(stone_mask)
+            fill_ratio = colored_pixels / area
+
+            # Compute pixel-based centroid — works for both filled stones
+            # (improvement #6) and outline rings (ghost positions).
+            Mpx = cv2.moments(stone_mask)
+            if Mpx["m00"] > 0:
+                sx = x + Mpx["m10"] / Mpx["m00"]
+                sy = y + Mpx["m01"] / Mpx["m00"]
+            else:
+                # Fallback to contour polygon moments
+                Mc = cv2.moments(c)
+                if Mc["m00"] == 0:
+                    continue
+                sx = Mc["m10"] / Mc["m00"]
+                sy = Mc["m01"] / Mc["m00"]
+
+            # Normalise coordinates to house-radius units (improvement #1).
+            # Bottom orientation mirrors both axes relative to the standard view.
+            if orientation == "top":
+                nx = (sx - house_cx) / house_radius
+                ny = (sy - house_cy) / house_radius
+            else:
+                nx = (house_cx - sx) / house_radius
+                ny = (house_cy - sy) / house_radius
+            dist = math.sqrt(nx * nx + ny * ny)
+            angle = math.degrees(math.atan2(ny, nx))
+
+            if fill_ratio < STONE_MIN_FILL_RATIO:
+                # Outline-only ring → record as ghost position (improvement #12)
+                ghosts.append((nx, ny, dist, angle))
+            else:
+                filled.append((nx, ny, dist, angle))
+
+        # Sort both lists ascending by distance from the house centre.
+        filled.sort(key=lambda s: s[2])
+        ghosts.sort(key=lambda s: s[2])
+
+        # Deduplicate active stones: if two detections are within
+        # STONE_DEDUP_RADIUS of each other, keep only the closer one.
+        # Because ``filled`` is already sorted ascending by distance, the
+        # first entry in each near-pair is always the closer stone
+        # (improvement #13).
+        deduped = []
+        for stone in filled:
+            if not any(
+                math.sqrt((stone[0] - s[0]) ** 2 + (stone[1] - s[1]) ** 2)
+                < STONE_DEDUP_RADIUS
+                for s in deduped
+            ):
+                deduped.append(stone)
+        filled = deduped
+
+        return filled, ghosts
+
+    red_filled, red_ghosts = _extract(mask_red)
+    yellow_filled, yellow_ghosts = _extract(mask_yellow)
+    return red_filled, red_ghosts, yellow_filled, yellow_ghosts, orientation
 
 
 def _match_stones_to_state(prev_state, curr_stones, stone_id_counter):
@@ -1084,7 +1174,7 @@ def extract_event(pdf_path, event_id):
                 meta = shot_metas[shot_idx]
                 crop = crop_shot_image(page_bgr, shot_images[shot_idx])
 
-                red_stones, yellow_stones, house_orientation = _detect_stones_in_crop(crop, color_ranges)
+                red_stones, red_ghosts, yellow_stones, yellow_ghosts, house_orientation = _detect_stones_in_crop(crop, color_ranges)
                 page_orientations.append(house_orientation)
 
                 # Register player
@@ -1127,6 +1217,24 @@ def extract_event(pdf_path, event_id):
                             row[f"{prefix}_stone{si+1}_y"] = ""
                             row[f"{prefix}_stone{si+1}_dist"] = ""
                             row[f"{prefix}_stone{si+1}_angle"] = ""
+
+                # Ghost stone positions – outline rings marking pre-shot
+                # positions of displaced stones (improvement #12).
+                for ti, ghost_list in enumerate([red_ghosts, yellow_ghosts], start=1):
+                    prefix = f"team{ti}"
+                    row[f"{prefix}_ghosts_in_play"] = len(ghost_list)
+                    for gi in range(MAX_STONES_PER_TEAM):
+                        if gi < len(ghost_list):
+                            nx, ny, dist, angle = ghost_list[gi]
+                            row[f"{prefix}_ghost{gi+1}_x"] = round(nx, 3)
+                            row[f"{prefix}_ghost{gi+1}_y"] = round(ny, 3)
+                            row[f"{prefix}_ghost{gi+1}_dist"] = round(dist, 3)
+                            row[f"{prefix}_ghost{gi+1}_angle"] = round(angle, 1)
+                        else:
+                            row[f"{prefix}_ghost{gi+1}_x"] = ""
+                            row[f"{prefix}_ghost{gi+1}_y"] = ""
+                            row[f"{prefix}_ghost{gi+1}_dist"] = ""
+                            row[f"{prefix}_ghost{gi+1}_angle"] = ""
 
                 shots_rows.append(row)
 
@@ -1232,7 +1340,7 @@ def run_calibration_diagnostic(pdf_paths, verbose=True):
 
         # Check shot 1 for stones unexpectedly far outside the house.
         color_ranges = _calibrate_stone_colors(page_bgr, first_page)
-        red_stones, yellow_stones, _ = _detect_stones_in_crop(first_crop, color_ranges)
+        red_stones, _red_ghosts, yellow_stones, _yellow_ghosts, _ = _detect_stones_in_crop(first_crop, color_ranges)
         all_stones = red_stones + yellow_stones
         suspect_stones = [s for s in all_stones if s[2] > SUSPECT_DIST_THRESHOLD]
 
@@ -1488,13 +1596,30 @@ def _write_shots_csv(path, rows):
                 f"{prefix}_x", f"{prefix}_y",
                 f"{prefix}_dist", f"{prefix}_angle",
             ]
-    all_fields = base_fields + stone_fields
+    # Ghost stone fields – outline-ring positions for displaced stones
+    # (improvement #12).  team{N}_ghosts_in_play is always an integer count;
+    # coordinate columns are NULL when no ghost was detected for that slot.
+    ghost_fields = []
+    for ti in (1, 2):
+        ghost_fields.append(f"team{ti}_ghosts_in_play")
+        for gi in range(1, MAX_STONES_PER_TEAM + 1):
+            prefix = f"team{ti}_ghost{gi}"
+            ghost_fields += [
+                f"{prefix}_x", f"{prefix}_y",
+                f"{prefix}_dist", f"{prefix}_angle",
+            ]
+    all_fields = base_fields + stone_fields + ghost_fields
     _write_csv(path, all_fields, rows)
     parquet_path = os.path.splitext(path)[0] + ".parquet"
     df = pd.DataFrame(rows, columns=all_fields)
-    df[stone_fields] = df[stone_fields].replace("", None)
-    for col in stone_fields:
+    # Convert empty strings to NULL and cast all position columns to float.
+    numeric_cols = stone_fields + [c for c in ghost_fields if c not in
+                                   ("team1_ghosts_in_play", "team2_ghosts_in_play")]
+    df[numeric_cols] = df[numeric_cols].replace("", None)
+    for col in numeric_cols:
         df[col] = pd.to_numeric(df[col], errors="coerce")
+    for col in ("team1_ghosts_in_play", "team2_ghosts_in_play"):
+        df[col] = pd.to_numeric(df[col], errors="coerce").astype("Int64")
     df.to_parquet(parquet_path, index=False)
 
 

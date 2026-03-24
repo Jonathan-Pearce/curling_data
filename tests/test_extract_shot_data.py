@@ -490,7 +490,7 @@ class TestWithPDF:
 
         crop = crop_shot_image(page_bgr, shot_imgs[11])  # shot 12
 
-        red_stones, yellow_stones, _ = _detect_stones_in_crop(crop)
+        red_stones, _red_ghosts, yellow_stones, _yellow_ghosts, _ = _detect_stones_in_crop(crop)
         # Shot 12 should have several stones visible
         assert len(red_stones) >= 3
         assert len(yellow_stones) >= 3
@@ -684,7 +684,7 @@ class TestOrientationConsistencyWarning:
         def fake_detect(crop, color_ranges=None):
             call_count[0] += 1
             orient = "bottom" if call_count[0] == 3 else "top"
-            return [], [], orient
+            return [], [], [], [], orient
 
         fake_page_bgr = np.zeros((700, 400, 3), dtype=np.uint8)
 
@@ -770,7 +770,7 @@ class TestOrientationConsistencyWarning:
         import numpy as np
 
         def fake_detect(crop, color_ranges=None):
-            return [], [], "top"   # always top
+            return [], [], [], [], "top"   # always top
 
         fake_page_bgr = np.zeros((700, 400, 3), dtype=np.uint8)
         shot_imgs = [_make_grid_image(i * 25, 50) for i in range(16)]
@@ -854,7 +854,7 @@ class TestRunCalibrationDiagnostic:
             "crop_shot_image": lambda _b, _m: np.zeros((100, 60, 3), dtype=np.uint8),
             "_detect_house_center": lambda _: (161.0, 171.0, float(detected_radius), "top"),
             "_calibrate_stone_colors": lambda _b, _p: None,
-            "_detect_stones_in_crop": lambda _c, _r=None: (stones, [], "top"),
+            "_detect_stones_in_crop": lambda _c, _r=None: (stones, [], [], [], "top"),
         }
 
     def test_ok_result_for_good_event(self):

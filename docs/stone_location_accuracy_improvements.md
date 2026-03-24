@@ -292,13 +292,145 @@ extraction) that:
 
 ---
 
+## Improvement 11 — Red Stone Colour Calibration from Team Indicator Dots
+
+**Status: ✅ Complete**
+
+### Problem
+
+Improvement #3 calibrated the yellow detection range per page using the team indicator
+images but left the red range as static global constants (`RED_LOWER_1/2`,
+`RED_UPPER_1/2`). The comment "red hue is stable across events" holds for WCF events but
+not for older national-federation PDFs or events with different print profiles where the
+red hue may be shifted enough to miss stones.
+
+### Fix Applied
+
+`_calibrate_stone_colors()` now also samples indicator images whose median hue falls in
+the red range (H ≤ 15 or H ≥ 165). From the sampled median red hue `r_h`, two calibrated
+sub-ranges are built that straddle the 0/180 wrap-around boundary:
+- Primary range: `[max(0, r_h − TOL), min(180, r_h + TOL)]`
+- Wrap range: mirrors the portion of the window that crosses 0 or 180
+
+If no red indicator is sampled, the static constants are used unchanged.
+
+**Impact:** Medium — cross-event generalization for red stone detection.  
+**Effort:** Low
+
+---
+
+## Improvement 12 — Ghost Stone Position Recording
+
+**Status: ✅ Complete**
+
+### Problem
+
+Outline-ring contours (fill ratio < `STONE_MIN_FILL_RATIO`) were silently discarded.
+These rings appear in shot diagrams at the pre-shot position of displaced stones and carry
+useful displacement-origin information for GNN displacement-vector features.
+
+### Fix Applied
+
+`_extract()` inside `_detect_stones_in_crop()` now returns `(filled, ghosts)`.  Ghost
+ring centroids are computed via filled-pixel moments (same as active stones) and stored
+in new columns in `shot_locations_raw.csv` / `shot_locations.parquet`:
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `team{N}_ghosts_in_play` | int | Count of ghost rings detected (0–8) |
+| `team{N}_ghost{M}_x/y/dist/angle` | float/NULL | Normalised coordinates, sorted by dist |
+
+`_detect_stones_in_crop()` return signature changed from 3-tuple to 5-tuple:
+`(red_filled, red_ghosts, yellow_filled, yellow_ghosts, orientation)`.
+
+**Caveat:** Grey-outline ghost rings are rejected by the HSV saturation filter upstream
+and produce NULL ghost columns. Not all event templates emit coloured ghost rings.
+
+**Impact:** High — enables displacement-vector node features for GNN architectures.  
+**Effort:** Low
+
+---
+
+## Improvement 13 — Deduplication of Overlapping Active-Stone Detections
+
+**Status: ✅ Complete**
+
+### Problem
+
+PDF rendering artefacts can split a single stone blob into two adjacent contours that
+both pass the area and fill-ratio guards, producing a duplicate detection. With no
+deduplication, the same physical stone could appear twice in the active-stone list,
+inflating `team{N}_stones_in_play` and corrupting the distance-sorted column layout.
+
+### Fix Applied
+
+After building the sorted `filled` list in `_extract()`, a greedy deduplication pass
+removes any stone whose centroid falls within `STONE_DEDUP_RADIUS = 0.08` normalised
+units of an already-accepted stone. Because the list is sorted ascending by distance,
+the earlier (closer) entry always wins each collision. Constant added:
+
+```python
+STONE_DEDUP_RADIUS = 0.08  # normalised units
+```
+
+**Impact:** Low–Medium — prevents occasional stone count over-reporting.  
+**Effort:** Low
+
+---
+
+## Improvement 14 — `np.mean` → `np.median` in Yellow Hue Calibration
+
+**Status: ✅ Complete**
+
+### Problem
+
+In `_calibrate_stone_colors()`, the calibrated yellow centre hue was computed as
+`np.mean(yellow_hues)`. A single outlier indicator image (e.g. a non-stone logo that
+passes the size filter) could pull the mean enough to shift the detection window off the
+actual stone colour, silently widening or narrowing effective coverage.
+
+### Fix Applied
+
+Changed to `np.median(yellow_hues)`. The median is robust to a single outlier in the
+sample list. Red hue calibration (added in Improvement #11) uses the same median pattern
+from the outset.
+
+**Impact:** Low — robustness improvement with zero effort cost.  
+**Effort:** Trivial
+
+---
+
+## Improvement 15 — Widen Hough Circle Radius Bounds for Grayscale Fallback
+
+**Status: ✅ Complete**
+
+### Problem
+
+The `cv2.HoughCircles` fallback in `_detect_house_center()` (used when colour-mask
+detection fails) had bounds `minRadius = HOUSE_RADIUS × 0.6` and
+`maxRadius = HOUSE_RADIUS × 1.4`. The Hough path fires precisely when colour detection
+has failed — which is more likely for atypically scaled PDFs — making tight bounds
+counterproductive exactly when flexibility is most needed. An event rendering the house
+at 50% or 150% of nominal scale would fail both detection paths with the previous bounds.
+
+### Fix Applied
+
+Widened to `minRadius = HOUSE_RADIUS × 0.5` and `maxRadius = HOUSE_RADIUS × 1.6`. The
+existing `_score()` function penalises radius deviation from nominal, so the best-fit
+circle is still preferred; the wider search window only increases recall for unusual scales.
+
+**Impact:** Low — reduces the residual failure rate of the Hough fallback.  
+**Effort:** Trivial
+
+---
+
 ## Summary
 
 | # | Issue | Impact | Effort | Status |
 |---|---|---|---|---|
 | 1 | `HOUSE_RADIUS` not detected — systematic per-event scaling bias | High | Medium | ✅ |
 | 2 | House ring colour thresholds fail on non-standard PDFs → silent fallback | High | Medium | ✅ |
-| 3 | Stone HSV ranges are global → mis-detection for non-standard events | High | Low–Medium | ✅ |
+| 3 | Yellow HSV range is global → mis-detection for non-standard events | High | Low–Medium | ✅ |
 | 4 | Area bounds don't scale with rink size → silent stone drops | Medium | Low | ✅ |
 | 5 | `int()` truncation discards sub-pixel centre accuracy | Low | Low | ✅ |
 | 6 | Contour moments vs. filled-pixel centroid | Low–Medium | Low | ✅ |
@@ -306,13 +438,8 @@ extraction) that:
 | 8 | Shot image grid validation absent → silent misalignment | Medium | Medium | ✅ |
 | 9 | Orientation fallback can invert all y-coordinates for an event | Medium | Low | ✅ |
 | 10 | No per-event calibration diagnostic | Medium (long-term) | Medium–High | ✅ |
-
-### Recommended implementation order
-
-1. **#5, #6, #7** — Quick wins; minimal risk, no dependencies.
-2. **#1** — Unlocks #4 as a follow-on; highest overall impact.
-3. **#3** — Per-page colour calibration; high cross-event value with low tuning burden.
-4. **#2 + #9** — Reduce silent-fallback surface area; add logging for problem events.
-5. **#8** — Grid validation; guards against subtle misalignment.
-6. **#4** — Straightforward once #1 is in place.
-7. **#10** — Calibration diagnostic; useful long-term tooling.
+| 11 | Red HSV range is global → mis-detection for non-standard events | Medium | Low | ✅ |
+| 12 | Ghost stone positions discarded → displacement-origin data lost | High | Low | ✅ |
+| 13 | Overlapping detections produce duplicate active stones | Low–Medium | Low | ✅ |
+| 14 | `np.mean` in yellow calibration vulnerable to outlier indicators | Low | Trivial | ✅ |
+| 15 | Hough fallback radius bounds too tight for atypically scaled PDFs | Low | Trivial | ✅ |
