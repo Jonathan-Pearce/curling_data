@@ -504,7 +504,7 @@ class TestWithPDF:
         output_dir = str(tmp_path / "output")
         extract_all(PDF_URL, output_dir)
 
-        for fname in ["events.csv", "matches.csv", "teams.csv", "players.csv", "ends.csv", "shot_locations.csv"]:
+        for fname in ["events.csv", "matches.csv", "teams.csv", "players.csv", "ends.csv", "shot_locations_raw.csv"]:
             fpath = os.path.join(output_dir, fname)
             assert os.path.isfile(fpath), f"{fname} not created"
 
@@ -526,7 +526,7 @@ class TestWithPDF:
         assert len(ends) == 446
         assert ends[0]["event_id"] == "1"
 
-        with open(os.path.join(output_dir, "shot_locations.csv")) as f:
+        with open(os.path.join(output_dir, "shot_locations_raw.csv")) as f:
             shots = list(csv.DictReader(f))
         assert len(shots) == 6992
         assert shots[0]["event_id"] == "1"

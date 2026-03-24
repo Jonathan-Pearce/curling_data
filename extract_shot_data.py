@@ -19,7 +19,8 @@ Outputs CSV files:
     - teams.csv
     - players.csv
     - ends.csv
-    - shot_locations.csv
+    - shot_locations_raw.csv   (no tracking columns; run track_stones.py to produce
+                               the tracked shot_locations.parquet used by the ML pipeline)
 """
 
 import argparse
@@ -1074,12 +1075,6 @@ def extract_event(pdf_path, event_id):
             # images (improvement #3); falls back to static constants silently.
             color_ranges = _calibrate_stone_colors(page_bgr, page)
 
-            # Sequential tracking state for this end (reset at the start of
-            # each end page).  Each entry is (stone_id, px, py).
-            track_state = {1: [], 2: []}
-            # Stone IDs are scoped to the current end; counter resets per end.
-            end_stone_id_counter = [1]
-
             # Collect per-crop orientations for the page-level consistency
             # check (improvement #9).
             page_orientations = []
@@ -1091,22 +1086,6 @@ def extract_event(pdf_path, event_id):
 
                 red_stones, yellow_stones, house_orientation = _detect_stones_in_crop(crop, color_ranges)
                 page_orientations.append(house_orientation)
-
-                # Map red/yellow to team1/team2 using the team color indicator
-                # images on the page.  In the PDF the first small indicator
-                # (image index 3 in page.images, a 31×31 red dot) is team1
-                # and the second (image index 2, a 31×31 yellow dot) is team2.
-                # So team1 = red, team2 = yellow.
-
-                # Apply sequential tracking: match each team's detections to
-                # the previous shot's state to assign stable stone IDs and
-                # propagate prev_x / prev_y for unchanged stones.
-                tracked_t1, track_state[1] = _match_stones_to_state(
-                    track_state[1], red_stones, end_stone_id_counter
-                )
-                tracked_t2, track_state[2] = _match_stones_to_state(
-                    track_state[2], yellow_stones, end_stone_id_counter
-                )
 
                 # Register player
                 player_name = meta["player_name"]
@@ -1129,38 +1108,25 @@ def extract_event(pdf_path, event_id):
                     "turn": meta["turn"],
                     "accuracy": meta["accuracy"],
                     "house_orientation": house_orientation,
-                    "team1_stones_in_play": len(tracked_t1),
-                    "team2_stones_in_play": len(tracked_t2),
+                    "team1_stones_in_play": len(red_stones),
+                    "team2_stones_in_play": len(yellow_stones),
                 }
 
                 # Stone positions – up to 8 per team, sorted by distance.
-                # Each slot additionally carries a stable stone_id (consistent
-                # within the end) and the previous-shot coordinates so that
-                # frame-to-frame displacement can be read directly from the row.
-                for ti, tracked in enumerate([tracked_t1, tracked_t2], start=1):
+                for ti, raw in enumerate([red_stones, yellow_stones], start=1):
                     prefix = f"team{ti}"
                     for si in range(MAX_STONES_PER_TEAM):
-                        if si < len(tracked):
-                            sid, nx, ny, dist, angle, prev_x, prev_y = tracked[si]
+                        if si < len(raw):
+                            nx, ny, dist, angle = raw[si]
                             row[f"{prefix}_stone{si+1}_x"] = round(nx, 3)
                             row[f"{prefix}_stone{si+1}_y"] = round(ny, 3)
                             row[f"{prefix}_stone{si+1}_dist"] = round(dist, 3)
                             row[f"{prefix}_stone{si+1}_angle"] = round(angle, 1)
-                            row[f"{prefix}_stone{si+1}_id"] = sid
-                            row[f"{prefix}_stone{si+1}_prev_x"] = (
-                                round(prev_x, 3) if prev_x is not None else ""
-                            )
-                            row[f"{prefix}_stone{si+1}_prev_y"] = (
-                                round(prev_y, 3) if prev_y is not None else ""
-                            )
                         else:
                             row[f"{prefix}_stone{si+1}_x"] = ""
                             row[f"{prefix}_stone{si+1}_y"] = ""
                             row[f"{prefix}_stone{si+1}_dist"] = ""
                             row[f"{prefix}_stone{si+1}_angle"] = ""
-                            row[f"{prefix}_stone{si+1}_id"] = ""
-                            row[f"{prefix}_stone{si+1}_prev_x"] = ""
-                            row[f"{prefix}_stone{si+1}_prev_y"] = ""
 
                 shots_rows.append(row)
 
@@ -1444,7 +1410,7 @@ def extract_all(pdf_paths, output_dir="output", event_metadata=None):
     _write_teams_csv(os.path.join(output_dir, "teams.csv"), all_teams_dict)
     _write_players_csv(os.path.join(output_dir, "players.csv"), all_players_dict)
     _write_ends_csv(os.path.join(output_dir, "ends.csv"), all_ends)
-    _write_shots_csv(os.path.join(output_dir, "shot_locations.csv"), all_shots)
+    _write_shots_csv(os.path.join(output_dir, "shot_locations_raw.csv"), all_shots)
 
     total_matches = len(all_matches)
     total_ends = len(all_ends)
@@ -1521,7 +1487,6 @@ def _write_shots_csv(path, rows):
             stone_fields += [
                 f"{prefix}_x", f"{prefix}_y",
                 f"{prefix}_dist", f"{prefix}_angle",
-                f"{prefix}_id", f"{prefix}_prev_x", f"{prefix}_prev_y",
             ]
     all_fields = base_fields + stone_fields
     _write_csv(path, all_fields, rows)
