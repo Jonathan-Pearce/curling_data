@@ -213,4 +213,6 @@ __marimo__/
 data/
 
 output/shot_locations.csv
+output/shot_locations_raw.csv
 output_old/v3/shot_locations.csv
+output_test/shot_locations.csv
