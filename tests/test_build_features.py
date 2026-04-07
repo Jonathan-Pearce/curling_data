@@ -175,10 +175,15 @@ class TestScoreColumns:
 class TestJoinBehaviour:
 
     def test_multi_end_join(self):
-        """Shots from different ends get context from the correct end row."""
+        """Shots from different ends get context from the correct end row.
+
+        End 1: AAA has hammer, AAA is shooting → has hammer.
+        End 2: BBB has hammer, AAA is shooting → does NOT have hammer.
+        Verifies that each shot is enriched from its own end row, not the other.
+        """
         shots = _shots_df([
             {"end_number": 1, "team_code": "AAA"},
-            {"end_number": 2, "team_code": "BBB"},
+            {"end_number": 2, "team_code": "AAA"},
         ])
         ends = _ends_df([
             {"end_number": 1, "team1_code": "AAA", "team2_code": "BBB",

@@ -1,20 +1,20 @@
 # Stone Tracking Verification Guide
 
-**Date:** 2026-03-22
-**Relates to:** `extract_shot_data.py` — `_match_stones_to_state()`, Issue 9
+**Date:** 2026-04-07
+**Relates to:** `track_stones.py` — `apply_tracking()`, `verify_stone_tracking.py`
 
 ---
 
 ## Background
 
-The `_match_stones_to_state()` function assigns each detected stone a stable `stone_id`
-that persists across all shots within an end. It also propagates the stone's position
-from the previous shot as `prev_x` / `prev_y`. This allows downstream consumers (and a
-future GNN) to track the same physical stone frame-to-frame without relying on the
-distance-sorted column ordering.
+The `apply_tracking()` function in `track_stones.py` assigns each detected stone a stable
+`stone_id` that persists across all shots within an end. It also populates
+`prev_x` / `prev_y` (the stone's position from the previous shot) and
+`is_shot_stone` (True for the one newly delivered stone on each shot).
 
-After any re-scrape that produces fresh `shot_locations.parquet` output, you should run
-the verification script to confirm the tracking is behaving as expected.
+After any re-scrape and re-run of `track_stones.py` that produces a fresh
+`shot_locations.parquet`, you should run the verification script to confirm the tracking
+is behaving as expected.
 
 ---
 
@@ -60,12 +60,13 @@ tracked correctly.
 ### Check 1 — Schema
 
 **What it checks:**
-All 48 new tracking columns are present in the parquet file
-(`team{1,2}_stone{1–8}_{id, prev_x, prev_y}`).
+All tracking columns are present in the parquet file:
+`team{1,2}_stone{1–8}_{id, prev_x, prev_y, is_shot_stone}` (64 columns total).
 
 **What failure means:**
 The parquet was produced by the old version of `extract_shot_data.py` (before the
-tracking code was merged). Re-scrape and re-run.
+tracking code was separated into `track_stones.py`). Re-run `track_stones.py` and
+`build_features.py` on the raw parquet.
 
 **Expected result:** `PASS`
 
@@ -82,9 +83,9 @@ previous positions to propagate. If any shot-1 row has a non-NULL `prev_x`, the
 tracking state is leaking across end boundaries — a serious bug.
 
 **What failure means:**
-The `track_state` dictionary is not being reset between ends. Check that the
-`track_state = {1: [], 2: []}` initialisation inside `extract_event()` is inside the
-`for page_idx in match_pages:` loop (i.e. it resets per end page), not outside it.
+The tracking state is leaking across end boundaries — a serious bug.  Check that the
+`track_state = {1: [], 2: []}` initialisation inside `apply_tracking()` resets at each
+new (event_id, match_id, end_number) group boundary.
 
 **Expected result:** `PASS`
 
