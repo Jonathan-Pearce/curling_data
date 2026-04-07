@@ -38,6 +38,11 @@ Evaluation helpers (importable)::
         evaluate_tracking,
         compare_tracking,
         displacement_distribution,
+        id_continuity_rate,
+        slot_swap_rate,
+        cap_pressure_rate,
+        displacement_symmetry,
+        stone_count_consistency_rate,
     )
 """
 
@@ -276,7 +281,7 @@ def apply_tracking(raw_df, method="greedy"):
                     for ti in (1, 2):
                         for slot_idx in range(len(matched_by_team[ti])):
                             si = slot_idx + 1
-                            is_shot = bool(ti == shot_ti and si == shot_si)
+                            is_shot = 1.0 if (ti == shot_ti and si == shot_si) else 0.0
                             df.at[row_pos, f"team{ti}_stone{si}_is_shot_stone"] = is_shot
 
     return df
@@ -305,52 +310,42 @@ def evaluate_tracking(tracked_df):
         ``total_stone_appearances``
             Total non-null stone slots across all shots (sum of
             ``team{N}_stones_in_play``).
-        ``total_ids_assigned``
-            Total unique stone IDs assigned, summed across all ends and teams.
-            Each end resets the counter, so IDs are counted per-end.
-        ``min_ids_needed``
-            Theoretical minimum IDs: for each end and team, the maximum
-            ``stones_in_play`` value seen in that end.  A perfect tracker
-            never creates more IDs than this.
-        ``fragmentation_index``
-            ``total_ids_assigned / min_ids_needed``.  1.0 is perfect;
-            higher values indicate unnecessary ID creation.
+        ``expected_new_stone_rate``
+            Theoretical fraction of mid-end stone slot appearances that should
+            be newly placed: ``n_mid_end_shots / total_mid_end_appearances``.
+            In 4-person curling each shot delivers exactly one stone, so this
+            equals ``1 / avg_stones_on_board`` (typically ~0.25).
         ``new_stone_rate_mid_end``
-            Fraction of non-first-shot stone appearances where the stone
-            received a new ID (``prev_x`` is NaN), i.e. was not matched to
-            any stone from the previous shot.  Lower is generally better,
-            though genuine new arrivals (deliveries) legitimately produce
-            one new ID per shot.
+            Measured fraction of non-first-shot stone appearances where the
+            stone received a new ID (``prev_x`` is NaN).  Should be close to
+            ``expected_new_stone_rate`` for a well-calibrated tracker.
+        ``spurious_id_rate``
+            Excess new-stone events above the expected delivery rate:
+            ``max(0, (new_mid_end - n_mid_end_shots) / total_mid_end)``.
+            Each shot delivers exactly one stone, so ``n_mid_end_shots`` is
+            the expected number of new IDs.  Any excess means stones already
+            on the board failed to match and were re-IDed.  0.0 is ideal;
+            values above ~0.02 warrant investigation.
+
+            Note: a takeout-heavy end (high stone churn) correctly produces
+            many new IDs — one per delivery — and does not inflate this metric.
     """
     df = tracked_df
     group_keys = ["event_id", "match_id", "end_number"]
 
-    total_ids_assigned = 0
-    min_ids_needed = 0
     total_appearances = 0
     new_mid_end = 0
     total_mid_end = 0
+    n_mid_end_shots = 0
 
     for (event_id, match_id, end_number), end_df in df.groupby(group_keys, sort=True):
         end_df_sorted = end_df.sort_values("shot_number")
         first_shot = end_df_sorted["shot_number"].min()
+        mid_df = end_df_sorted[end_df_sorted["shot_number"] > first_shot]
+        n_mid_end_shots += len(mid_df)
 
         for ti in (1, 2):
-            # Unique IDs used for this team in this end
-            id_vals = set()
-            for si in range(1, MAX_STONES_PER_TEAM + 1):
-                col = f"team{ti}_stone{si}_id"
-                if col in df.columns:
-                    vals = end_df_sorted[col].dropna()
-                    id_vals.update(int(v) for v in vals)
-            total_ids_assigned += len(id_vals)
-
-            # Minimum IDs needed = max stones in play at any shot
-            sip_col = f"team{ti}_stones_in_play"
-            min_ids_needed += int(end_df_sorted[sip_col].max())
-
             # New-stone rate mid-end (shot_number > first in end)
-            mid_df = end_df_sorted[end_df_sorted["shot_number"] > first_shot]
             for si in range(1, MAX_STONES_PER_TEAM + 1):
                 x_col = f"team{ti}_stone{si}_x"
                 prev_col = f"team{ti}_stone{si}_prev_x"
@@ -366,20 +361,24 @@ def evaluate_tracking(tracked_df):
                 if col in df.columns:
                     total_appearances += int(end_df_sorted[col].notna().sum())
 
-    fragmentation = (
-        total_ids_assigned / min_ids_needed if min_ids_needed > 0 else float("nan")
+    expected_new_rate = (
+        n_mid_end_shots / total_mid_end if total_mid_end > 0 else float("nan")
     )
     new_rate = (
         new_mid_end / total_mid_end if total_mid_end > 0 else float("nan")
+    )
+    spurious = (
+        max(0.0, (new_mid_end - n_mid_end_shots) / total_mid_end)
+        if total_mid_end > 0
+        else float("nan")
     )
 
     return {
         "total_ends": int(df.groupby(group_keys).ngroups),
         "total_stone_appearances": total_appearances,
-        "total_ids_assigned": total_ids_assigned,
-        "min_ids_needed": min_ids_needed,
-        "fragmentation_index": round(fragmentation, 4),
+        "expected_new_stone_rate": round(expected_new_rate, 4),
         "new_stone_rate_mid_end": round(new_rate, 4),
+        "spurious_id_rate": round(spurious, 4),
     }
 
 
@@ -406,12 +405,12 @@ def compare_tracking(tracked_a, tracked_b, method_a="A", method_b="B"):
             Fraction of mid-end stone appearances where both methods assigned
             the same origin (``prev_x`` and ``prev_y`` match within 1e-4
             tolerance, or both are NaN meaning both treated the stone as new).
-        ``fragmentation_index_{method_a}``
-        ``fragmentation_index_{method_b}``
-            Fragmentation index from :func:`evaluate_tracking` for each.
-        ``fragmentation_improvement``
-            ``frag_a − frag_b``.  Positive means method B is better
-            (less fragmentation).
+        ``spurious_id_rate_{method_a}``
+        ``spurious_id_rate_{method_b}``
+            Spurious ID rate from :func:`evaluate_tracking` for each.
+        ``spurious_id_rate_improvement``
+            ``spurious_a − spurious_b``.  Positive means method B produces
+            fewer spurious re-IDs.
         ``new_stone_rate_mid_end_{method_a}``
         ``new_stone_rate_mid_end_{method_b}``
     """
@@ -474,14 +473,14 @@ def compare_tracking(tracked_a, tracked_b, method_a="A", method_b="B"):
     metrics_b = evaluate_tracking(tracked_b)
 
     agreement = agreed / total if total > 0 else float("nan")
-    frag_a = metrics_a["fragmentation_index"]
-    frag_b = metrics_b["fragmentation_index"]
+    spurious_a = metrics_a["spurious_id_rate"]
+    spurious_b = metrics_b["spurious_id_rate"]
 
     return {
         "link_agreement_rate": round(agreement, 4),
-        f"fragmentation_index_{method_a}": frag_a,
-        f"fragmentation_index_{method_b}": frag_b,
-        "fragmentation_improvement": round(frag_a - frag_b, 4),
+        f"spurious_id_rate_{method_a}": spurious_a,
+        f"spurious_id_rate_{method_b}": spurious_b,
+        "spurious_id_rate_improvement": round(spurious_a - spurious_b, 4),
         f"new_stone_rate_mid_end_{method_a}": metrics_a["new_stone_rate_mid_end"],
         f"new_stone_rate_mid_end_{method_b}": metrics_b["new_stone_rate_mid_end"],
     }
@@ -582,6 +581,382 @@ def displacement_distribution(tracked_df):
         "near_zero_fraction": round(float(nz_mask.sum()) / total, 4),
         "median_displacement": round(float(np.median(all_d)), 4),
         "p95_displacement": round(float(np.percentile(all_d, 95)), 4),
+    }
+
+
+def id_continuity_rate(tracked_df):
+    """Fraction of non-shot-stone transitions where stone ID is preserved.
+
+    For every consecutive (shot N, shot N+1) pair within an end, finds stone
+    slots that are occupied at both shots **and** were not the delivered stone
+    at shot N+1 (``is_shot_stone != 1.0``).  These stones should not change
+    identity.  Returns the fraction where the ``_id`` is identical.
+
+    Parameters
+    ----------
+    tracked_df : pd.DataFrame
+        Output of :func:`apply_tracking`.
+
+    Returns
+    -------
+    dict
+        ``total_transitions``
+            Total (stone, shot-pair) observations considered.
+        ``id_continuity_rate``
+            Fraction of transitions where the ID was preserved.  1.0 is
+            perfect; values below 0.95 indicate excessive re-IDing of
+            stationary stones.
+    """
+    df = tracked_df
+    group_keys = ["event_id", "match_id", "end_number"]
+    total = 0
+    preserved = 0
+
+    for _, end_df in df.groupby(group_keys, sort=True):
+        end_df = end_df.sort_values("shot_number").reset_index(drop=True)
+        for i in range(len(end_df) - 1):
+            row_curr = end_df.iloc[i]
+            row_next = end_df.iloc[i + 1]
+            for ti in (1, 2):
+                for si in range(1, MAX_STONES_PER_TEAM + 1):
+                    x_col = f"team{ti}_stone{si}_x"
+                    id_col = f"team{ti}_stone{si}_id"
+                    ss_col = f"team{ti}_stone{si}_is_shot_stone"
+                    if x_col not in df.columns or id_col not in df.columns:
+                        break
+                    # Both shots must have this stone occupied
+                    if pd.isna(row_curr.get(x_col)) or pd.isna(row_next.get(x_col)):
+                        continue
+                    # Exclude: stone was delivered at the next shot
+                    if row_next.get(ss_col) == 1.0:
+                        continue
+                    total += 1
+                    if row_curr.get(id_col) == row_next.get(id_col):
+                        preserved += 1
+
+    rate = preserved / total if total > 0 else float("nan")
+    return {
+        "total_transitions": total,
+        "id_continuity_rate": round(rate, 4),
+    }
+
+
+def slot_swap_rate(tracked_df):
+    """Rate of impossible stone-ID swaps between consecutive shots.
+
+    A swap occurs when two stones of the same team both present at shot N and
+    shot N+1 exchange their ``_id`` values.  This is physically impossible in
+    curling (stones cannot pass through each other) and always indicates a
+    tracking assignment error.
+
+    Parameters
+    ----------
+    tracked_df : pd.DataFrame
+        Output of :func:`apply_tracking`.
+
+    Returns
+    -------
+    dict
+        ``total_shot_pairs``
+            Number of consecutive shot pairs examined across all ends.
+        ``swap_events``
+            Total number of observed ID swaps (each swap = one pair of
+            stones exchanging IDs in one shot transition).
+        ``slot_swap_rate``
+            ``swap_events / total_shot_pairs``.  0.0 is perfect.
+    """
+    df = tracked_df
+    group_keys = ["event_id", "match_id", "end_number"]
+    total_pairs = 0
+    swap_events = 0
+
+    for _, end_df in df.groupby(group_keys, sort=True):
+        end_df = end_df.sort_values("shot_number").reset_index(drop=True)
+        for i in range(len(end_df) - 1):
+            row_a = end_df.iloc[i]
+            row_b = end_df.iloc[i + 1]
+            total_pairs += 1
+            for ti in (1, 2):
+                # Collect (slot, id) for occupied stones at both shots
+                ids_a = {}
+                ids_b = {}
+                for si in range(1, MAX_STONES_PER_TEAM + 1):
+                    x_col = f"team{ti}_stone{si}_x"
+                    id_col = f"team{ti}_stone{si}_id"
+                    if x_col not in df.columns or id_col not in df.columns:
+                        break
+                    if pd.notna(row_a.get(x_col)) and pd.notna(row_a.get(id_col)):
+                        ids_a[si] = int(row_a[id_col])
+                    if pd.notna(row_b.get(x_col)) and pd.notna(row_b.get(id_col)):
+                        ids_b[si] = int(row_b[id_col])
+                # Find slots present at both shots
+                common_slots = set(ids_a) & set(ids_b)
+                if len(common_slots) < 2:
+                    continue
+                # Build reverse maps: id -> slot
+                rev_a = {v: k for k, v in ids_a.items() if k in common_slots}
+                rev_b = {v: k for k, v in ids_b.items() if k in common_slots}
+                common_ids = set(rev_a) & set(rev_b)
+                # Count swaps: id X moved to slot of id Y, and id Y moved to slot of id X
+                checked = set()
+                for id_x in common_ids:
+                    if id_x in checked:
+                        continue
+                    slot_x_in_a = rev_a[id_x]
+                    slot_x_in_b = rev_b[id_x]
+                    if slot_x_in_a == slot_x_in_b:
+                        continue
+                    # Check if whatever was in slot_x_in_b at shot A moved to slot_x_in_a
+                    id_y = ids_a.get(slot_x_in_b)
+                    if id_y is not None and ids_b.get(slot_x_in_a) == id_y:
+                        swap_events += 1
+                        checked.add(id_x)
+                        checked.add(id_y)
+
+    rate = swap_events / total_pairs if total_pairs > 0 else float("nan")
+    return {
+        "total_shot_pairs": total_pairs,
+        "swap_events": swap_events,
+        "slot_swap_rate": round(rate, 4),
+    }
+
+
+def cap_pressure_rate(tracked_df):
+    """Fraction of new-ID events whose nearest previous stone is just outside the cap.
+
+    For each mid-end stone appearance that received a new ID (treated as a
+    fresh delivery), computes the distance to every stone in the previous shot
+    for the same team.  If the nearest distance falls in the zone
+    ``[cap, cap + 0.05)`` the match was rejected only because the cap was
+    exceeded by a small margin — a candidate false rejection.
+
+    High values suggest ``STONE_TRACK_MAX_DIST`` should be raised.
+
+    Parameters
+    ----------
+    tracked_df : pd.DataFrame
+        Output of :func:`apply_tracking`.
+
+    Returns
+    -------
+    dict
+        ``total_new_id_events``
+            Total mid-end stone appearances that received a new ID.
+        ``cap_pressure_events``
+            Subset where the nearest previous stone is in ``[cap, cap+0.05)``.
+        ``cap_pressure_rate``
+            ``cap_pressure_events / total_new_id_events``.  Values above ~0.10
+            suggest the cap should be increased.
+    """
+    df = tracked_df
+    group_keys = ["event_id", "match_id", "end_number"]
+    pressure_zone = 0.05
+    cap = STONE_TRACK_MAX_DIST
+    total_new = 0
+    cap_pressure = 0
+
+    for _, end_df in df.groupby(group_keys, sort=True):
+        end_df = end_df.sort_values("shot_number").reset_index(drop=True)
+        first_shot = end_df["shot_number"].min()
+        mid_df = end_df[end_df["shot_number"] > first_shot]
+
+        for i, (_, row) in enumerate(mid_df.iterrows()):
+            # Get the previous shot row
+            shot_idx = end_df[end_df["shot_number"] == row["shot_number"]].index[0]
+            if shot_idx == 0:
+                continue
+            prev_row = end_df.iloc[shot_idx - 1]
+
+            for ti in (1, 2):
+                # Collect previous-shot stone positions for this team
+                prev_positions = []
+                for si in range(1, MAX_STONES_PER_TEAM + 1):
+                    px_col = f"team{ti}_stone{si}_x"
+                    py_col = f"team{ti}_stone{si}_y"
+                    if px_col not in df.columns:
+                        break
+                    px = prev_row.get(px_col)
+                    py = prev_row.get(py_col)
+                    if pd.notna(px) and pd.notna(py):
+                        prev_positions.append((float(px), float(py)))
+
+                for si in range(1, MAX_STONES_PER_TEAM + 1):
+                    x_col = f"team{ti}_stone{si}_x"
+                    y_col = f"team{ti}_stone{si}_y"
+                    prev_x_col = f"team{ti}_stone{si}_prev_x"
+                    if x_col not in df.columns or prev_x_col not in df.columns:
+                        break
+                    nx = row.get(x_col)
+                    ny = row.get(y_col)
+                    prev_x = row.get(prev_x_col)
+                    # Only consider mid-end new-ID stones
+                    if pd.isna(nx) or pd.notna(prev_x):
+                        continue
+                    total_new += 1
+                    if not prev_positions:
+                        continue
+                    min_dist = min(
+                        math.sqrt((nx - px) ** 2 + (ny - py) ** 2)
+                        for px, py in prev_positions
+                    )
+                    if cap <= min_dist < cap + pressure_zone:
+                        cap_pressure += 1
+
+    rate = cap_pressure / total_new if total_new > 0 else float("nan")
+    return {
+        "total_new_id_events": total_new,
+        "cap_pressure_events": cap_pressure,
+        "cap_pressure_rate": round(rate, 4),
+    }
+
+
+def displacement_symmetry(tracked_df):
+    """Compare displacement distributions for shot stones vs. still stones.
+
+    Uses the ``is_shot_stone`` flag to separate matched-link displacements
+    into two groups: the delivered stone (``is_shot_stone == 1.0``) and all
+    other stones already on the board (``is_shot_stone == 0.0``).
+
+    A well-tracked dataset should show clear separation: still-stones cluster
+    near zero (rendering jitter only) while shot-stones span a wider range.
+
+    Parameters
+    ----------
+    tracked_df : pd.DataFrame
+        Output of :func:`apply_tracking`.  Requires ``_is_shot_stone``,
+        ``_prev_x``, ``_prev_y`` columns.
+
+    Returns
+    -------
+    dict
+        ``still_stone_median_displacement``
+            Should be near zero (< 0.01).
+        ``still_stone_p95_displacement``
+            A value close to the cap signals noise issues.
+        ``shot_stone_median_displacement``
+            No fixed ideal; reflects typical stone delivery distance.
+        ``shot_stone_p95_displacement``
+            95th-percentile delivery displacement.
+        ``separation_ratio``
+            ``shot_stone_median / still_stone_median``.  Higher is better;
+            values below ~5 suggest ``is_shot_stone`` quality problems or
+            excessive still-stone jitter.
+        ``still_stone_links``
+        ``shot_stone_links``
+            Number of observations in each group.
+    """
+    df = tracked_df
+    still_disps = []
+    shot_disps = []
+
+    for ti in (1, 2):
+        for si in range(1, MAX_STONES_PER_TEAM + 1):
+            x_col = f"team{ti}_stone{si}_x"
+            y_col = f"team{ti}_stone{si}_y"
+            px_col = f"team{ti}_stone{si}_prev_x"
+            py_col = f"team{ti}_stone{si}_prev_y"
+            ss_col = f"team{ti}_stone{si}_is_shot_stone"
+            if not all(c in df.columns for c in [x_col, px_col, ss_col]):
+                break
+            matched = df[df[px_col].notna() & df[x_col].notna()].copy()
+            if matched.empty:
+                continue
+            dx = matched[x_col].to_numpy() - matched[px_col].to_numpy()
+            dy = matched[y_col].to_numpy() - matched[py_col].to_numpy()
+            d = np.sqrt(dx ** 2 + dy ** 2)
+            ss = matched[ss_col].to_numpy()
+            still_disps.append(d[ss == 0.0])
+            shot_disps.append(d[ss == 1.0])
+
+    still = np.concatenate(still_disps) if still_disps else np.array([])
+    shot = np.concatenate(shot_disps) if shot_disps else np.array([])
+
+    def _stats(arr):
+        if len(arr) == 0:
+            return float("nan"), float("nan")
+        return round(float(np.median(arr)), 4), round(float(np.percentile(arr, 95)), 4)
+
+    still_med, still_p95 = _stats(still)
+    shot_med, shot_p95 = _stats(shot)
+
+    if still_med and still_med > 0:
+        sep = round(shot_med / still_med, 2) if not math.isnan(shot_med) else float("nan")
+    else:
+        sep = float("nan")
+
+    return {
+        "still_stone_links": len(still),
+        "shot_stone_links": len(shot),
+        "still_stone_median_displacement": still_med,
+        "still_stone_p95_displacement": still_p95,
+        "shot_stone_median_displacement": shot_med,
+        "shot_stone_p95_displacement": shot_p95,
+        "separation_ratio": sep,
+    }
+
+
+def stone_count_consistency_rate(tracked_df):
+    """Fraction of consecutive shot pairs where stone count changes by at most 1.
+
+    Between consecutive shots, each team's ``stones_in_play`` should change
+    by at most ±1 (one stone delivered or one taken out).  A jump of ±2 or
+    more almost always reflects an upstream extraction error (the detector
+    hallucinated or dropped a stone), not a tracking error.
+
+    Parameters
+    ----------
+    tracked_df : pd.DataFrame
+        Output of :func:`apply_tracking`.  Requires
+        ``team{N}_stones_in_play`` columns.
+
+    Returns
+    -------
+    dict
+        ``total_shot_pairs``
+            Consecutive shot pairs examined.
+        ``inconsistent_pairs``
+            Pairs where ``|Δstones_in_play| > 1`` for at least one team.
+        ``stone_count_consistency_rate``
+            ``1 - inconsistent_pairs / total_shot_pairs``.  1.0 is perfect.
+        ``inconsistent_ends``
+            Number of distinct ends containing at least one inconsistent pair.
+    """
+    df = tracked_df
+    group_keys = ["event_id", "match_id", "end_number"]
+    total_pairs = 0
+    inconsistent_pairs = 0
+    inconsistent_ends = 0
+
+    for _, end_df in df.groupby(group_keys, sort=True):
+        end_df = end_df.sort_values("shot_number").reset_index(drop=True)
+        end_has_inconsistency = False
+        for i in range(len(end_df) - 1):
+            row_a = end_df.iloc[i]
+            row_b = end_df.iloc[i + 1]
+            total_pairs += 1
+            bad = False
+            for ti in (1, 2):
+                sip_col = f"team{ti}_stones_in_play"
+                if sip_col not in df.columns:
+                    continue
+                delta = abs(int(row_b[sip_col]) - int(row_a[sip_col]))
+                if delta > 1:
+                    bad = True
+                    break
+            if bad:
+                inconsistent_pairs += 1
+                end_has_inconsistency = True
+        if end_has_inconsistency:
+            inconsistent_ends += 1
+
+    rate = (
+        1.0 - inconsistent_pairs / total_pairs if total_pairs > 0 else float("nan")
+    )
+    return {
+        "total_shot_pairs": total_pairs,
+        "inconsistent_pairs": inconsistent_pairs,
+        "stone_count_consistency_rate": round(rate, 4),
+        "inconsistent_ends": inconsistent_ends,
     }
 
 
