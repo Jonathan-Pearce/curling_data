@@ -48,12 +48,17 @@ curling_data/
 │   ├── scraping_improvements.md    # Proposals for pipeline improvements
 │   ├── stone_location_accuracy_improvements.md
 │   └── tracking_verification_guide.md
+├── src/                            # Python source files
+│   ├── build_features.py           # Enriches shot data with game-context columns
+│   ├── evaluate_detection.py       # Stone detection accuracy evaluation
+│   ├── extract_shot_data.py        # Main extraction script
+│   ├── generate_board_image.py     # Board image generation for data QA
+│   ├── scrape_results.py           # Scrapes curlit.com for tournament PDF URLs
+│   ├── track_stones.py             # Stone tracking across shots within an end
+│   └── verify_stone_tracking.py   # Post-scrape stone tracking validation
 ├── example raw data/               # Sample PDFs used by integration tests
 ├── investigations/                 # Exploratory analysis notebooks
-├── extract_shot_data.py            # Main extraction script
-├── scrape_results.py               # Scrapes curlit.com for tournament PDF URLs
-├── generate_board_image.py         # Board image generation for data QA
-├── verify_stone_tracking.py        # Post-scrape stone tracking validation
+├── conftest.py                     # pytest path configuration
 ├── requirements.txt
 └── README.md
 ```
@@ -63,7 +68,7 @@ curling_data/
 Before running the main extraction, scrape curlit.com to build the index of all available result-book PDFs:
 
 ```bash
-python scrape_results.py
+python src/scrape_results.py
 ```
 
 This writes `output/result_urls.csv` with columns: `tournament_name`, `year`, `location`, `result_book_url`, `gender`, `result_summary_url`. Gender codes: `m`, `w`, `mx`, `mxd`.
@@ -73,19 +78,19 @@ This writes `output/result_urls.csv` with columns: `tournament_name`, `year`, `l
 Process all PDFs in `output/result_urls.csv` (the default bulk mode — run `scrape_results.py` first):
 
 ```bash
-python extract_shot_data.py
+python src/extract_shot_data.py
 ```
 
 Process specific PDFs by URL:
 
 ```bash
-python extract_shot_data.py https://curlit.com/PDF/ECC2025_ResultsBook_Men_A-Division.pdf --output-dir output
+python src/extract_shot_data.py https://curlit.com/PDF/ECC2025_ResultsBook_Men_A-Division.pdf --output-dir output
 ```
 
 Process multiple PDFs (local paths and/or URLs):
 
 ```bash
-python extract_shot_data.py https://curlit.com/PDF/ECC2025_ResultsBook_Men_A-Division.pdf https://curlit.com/PDF/WMCC2023_ResultsBook.pdf --output-dir output
+python src/extract_shot_data.py https://curlit.com/PDF/ECC2025_ResultsBook_Men_A-Division.pdf https://curlit.com/PDF/WMCC2023_ResultsBook.pdf --output-dir output
 ```
 
 ## Verifying Stone Tracking
@@ -93,22 +98,91 @@ python extract_shot_data.py https://curlit.com/PDF/ECC2025_ResultsBook_Men_A-Div
 After a scrape run, validate that the sequential stone-tracking data is internally consistent:
 
 ```bash
-python verify_stone_tracking.py output/shot_locations.parquet
+python src/verify_stone_tracking.py output/shot_locations.parquet
 ```
 
 Filter to a specific event or match:
 
 ```bash
-python verify_stone_tracking.py output/shot_locations.parquet --event 1 --match 2
+python src/verify_stone_tracking.py output/shot_locations.parquet --event 1 --match 2
 ```
 
 Generate displacement-arrow board images for manual comparison against the original PDFs:
 
 ```bash
-python verify_stone_tracking.py output/shot_locations.parquet --visualise --output-dir verify_out
+python src/verify_stone_tracking.py output/shot_locations.parquet --visualise --output-dir verify_out
 ```
 
 The script runs 7 automated checks covering schema presence, first-shot invariants, stone ID uniqueness and continuity, displacement plausibility, and new-stone counts per shot.
+
+## Detection Accuracy Evaluation
+
+`evaluate_detection.py` measures how accurately the stone detection pipeline extracts positions from the original PDF crops, without requiring manual annotation.
+
+For each shot crop in a PDF it runs both a permissive ground-truth blob extraction (loose area filter, no deduplication) and the production pipeline, then matches the two sets and reports precision, recall, F1, and median centroid error.  Active stones and ghost rings are evaluated separately.
+
+Quick smoke-test on the first 3 ends of a local PDF:
+
+```bash
+python src/evaluate_detection.py "example raw data/ECC2025_ResultsBook_Men_A-Division.pdf" --max-ends 3
+```
+
+Or directly from a URL:
+
+```bash
+python src/evaluate_detection.py https://curlit.com/PDF/ECC2025_ResultsBook_Men_A-Division.pdf --max-ends 3
+```
+
+Full evaluation with per-shot CSV output:
+
+```bash
+python src/evaluate_detection.py https://curlit.com/PDF/ECC2025_ResultsBook_Men_A-Division.pdf --csv-out eval_out/results.csv
+```
+
+Save annotated overlay images (green circles = TP, orange cross = FP, red cross = FN):
+
+```bash
+python src/evaluate_detection.py "example raw data/ECC2025_ResultsBook_Men_A-Division.pdf" --max-ends 2 --overlay-dir eval_out/overlays/
+```
+
+Example summary output:
+
+```
+========================================================
+  Detection Evaluation — ECC2025_ResultsBook_Men_A-Division.pdf
+========================================================
+  Ends evaluated        : 167
+  Shots evaluated       : 2672
+
+  ── Active stones ──────────────────────────────────
+  Ground-truth blobs    :  12 840
+  Detected              :  12 815
+  True Positives        :  12 790
+  False Positives (FP)  :      25  (hallucinated)
+  False Negatives (FN)  :      50  (missed)
+  Precision             :   99.80 %
+  Recall                :   99.61 %
+  F1                    :   99.70 %
+  Position error median :  0.0030 norm. units
+  Position error p95    :  0.0120 norm. units
+  Shots with FP         :      18
+  Shots with FN         :      42
+
+  ── Ghost rings ────────────────────────────────────
+  Ground-truth ghosts   :     847
+  Ghost Precision       :   99.20 %
+  Ghost Recall          :   96.70 %
+========================================================
+```
+
+The function can also be used programmatically:
+
+```python
+from evaluate_detection import evaluate_pdf, print_summary
+
+summary, shot_records = evaluate_pdf("path/to/event.pdf", max_ends=5)
+print_summary(summary)
+```
 
 ## Board Image Generation
 
@@ -117,7 +191,7 @@ Recreate curling board images from the scraped data for data quality verificatio
 Generate a board image for a specific shot:
 
 ```bash
-python generate_board_image.py --event 1 --match 1 --end 7 --shot 12 -o board.png
+python src/generate_board_image.py --event 1 --match 1 --end 7 --shot 12 -o board.png
 ```
 
 The function can also be used programmatically:
