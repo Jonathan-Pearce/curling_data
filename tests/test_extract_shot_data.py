@@ -3,8 +3,6 @@
 import math
 import os
 import csv
-import urllib.error
-import urllib.request
 from unittest.mock import patch
 
 import pytest
@@ -35,22 +33,12 @@ from scraping.extract_shot_data import (
     HOUSE_RADIUS,
 )
 
-PDF_URL = "https://curlit.com/PDF/ECC2025_ResultsBook_Men_A-Division.pdf"
-WMCC_PDF_URL = "https://curlit.com/PDF/WMCC2023_ResultsBook.pdf"
+_EXAMPLE_RAW_DATA = os.path.join(os.path.dirname(__file__), "..", "example raw data")
+PDF_PATH = os.path.normpath(os.path.join(_EXAMPLE_RAW_DATA, "ECC2025_ResultsBook_Men_A-Division.pdf"))
+WMCC_PDF_PATH = os.path.normpath(os.path.join(_EXAMPLE_RAW_DATA, "WMCC2023_ResultsBook.pdf"))
 
-
-def _url_accessible(url):
-    """Return True if a HEAD request to *url* succeeds."""
-    try:
-        req = urllib.request.Request(url, method="HEAD")
-        urllib.request.urlopen(req, timeout=10)
-        return True
-    except (urllib.error.URLError, urllib.error.HTTPError, OSError):
-        return False
-
-
-PDF_AVAILABLE = _url_accessible(PDF_URL)
-WMCC_PDF_AVAILABLE = _url_accessible(WMCC_PDF_URL)
+PDF_AVAILABLE = os.path.isfile(PDF_PATH)
+WMCC_PDF_AVAILABLE = os.path.isfile(WMCC_PDF_PATH)
 
 
 # ---------------------------------------------------------------------------
@@ -427,11 +415,11 @@ class TestStoneTracking:
 # Integration tests (require PDF)
 # ---------------------------------------------------------------------------
 
-@pytest.mark.skipif(not PDF_AVAILABLE, reason="PDF URL not accessible")
+@pytest.mark.skipif(not PDF_AVAILABLE, reason="PDF file not found in 'example raw data/'")
 class TestWithPDF:
     @pytest.fixture(autouse=True)
     def setup_pdf(self):
-        self.pdf = _open_pdf(PDF_URL)
+        self.pdf = _open_pdf(PDF_PATH)
         yield
         self.pdf.close()
 
@@ -480,7 +468,7 @@ class TestWithPDF:
     def test_stone_detection(self):
         import numpy as np
         import cv2
-        from extract_shot_data import crop_shot_image
+        from scraping.extract_shot_data import crop_shot_image
 
         page = self.pdf.pages[13]
         shot_imgs = _get_shot_images(page)
@@ -502,7 +490,7 @@ class TestWithPDF:
 
     def test_full_extraction(self, tmp_path):
         output_dir = str(tmp_path / "output")
-        extract_all(PDF_URL, output_dir)
+        extract_all(PDF_PATH, output_dir)
 
         for fname in ["events.csv", "matches.csv", "teams.csv", "players.csv", "ends.csv", "shot_locations_raw.csv"]:
             fpath = os.path.join(output_dir, fname)
@@ -541,11 +529,11 @@ class TestWithPDF:
         assert players[0]["event_id"] == "1"
 
 
-@pytest.mark.skipif(not (PDF_AVAILABLE and WMCC_PDF_AVAILABLE), reason="Both PDF URLs required")
+@pytest.mark.skipif(not (PDF_AVAILABLE and WMCC_PDF_AVAILABLE), reason="Both PDF files not found in 'example raw data/'")
 class TestMultiEvent:
     def test_multi_event_extraction(self, tmp_path):
         output_dir = str(tmp_path / "output")
-        extract_all([PDF_URL, WMCC_PDF_URL], output_dir)
+        extract_all([PDF_PATH, WMCC_PDF_PATH], output_dir)
 
         with open(os.path.join(output_dir, "events.csv")) as f:
             events = list(csv.DictReader(f))
@@ -673,7 +661,7 @@ class TestOrientationConsistencyWarning:
         """extract_event emits a WARNING when house orientations are inconsistent
         across the 16 crops of an end page."""
         # Build a mock PDF chain so we don't need a real file.
-        import extract_shot_data as esd
+        import scraping.extract_shot_data as esd
         import numpy as np
 
         # Patch everything needed to run a minimal end-page pass.
@@ -766,7 +754,7 @@ class TestOrientationConsistencyWarning:
 
     def test_no_warning_on_uniform_orientations(self, capsys):
         """No warning is emitted when all crops agree on orientation."""
-        import extract_shot_data as esd
+        import scraping.extract_shot_data as esd
         import numpy as np
 
         def fake_detect(crop, color_ranges=None):
@@ -829,7 +817,7 @@ class TestRunCalibrationDiagnostic:
     def _make_minimal_pdf_mocks(self, detected_radius=112, suspect=False):
         """Return a set of patches for a minimal successful calibration run."""
         import numpy as np
-        import extract_shot_data as esd
+        import scraping.extract_shot_data as esd
 
         fake_bgr = np.zeros((700, 400, 3), dtype=np.uint8)
         shot_imgs = [_make_grid_image(i * 25, 50) for i in range(16)]
@@ -858,7 +846,7 @@ class TestRunCalibrationDiagnostic:
         }
 
     def test_ok_result_for_good_event(self):
-        import extract_shot_data as esd
+        import scraping.extract_shot_data as esd
 
         patches = self._make_minimal_pdf_mocks(detected_radius=112, suspect=False)
         with (
@@ -879,7 +867,7 @@ class TestRunCalibrationDiagnostic:
         assert results[0]["deviation_pct"] == 0.0
 
     def test_radius_deviation_flagged(self):
-        import extract_shot_data as esd
+        import scraping.extract_shot_data as esd
 
         # 140 px is 25% above the nominal 112 — exceeds 10% threshold
         patches = self._make_minimal_pdf_mocks(detected_radius=140, suspect=False)
@@ -899,7 +887,7 @@ class TestRunCalibrationDiagnostic:
         assert results[0]["deviation_pct"] > 10.0
 
     def test_suspect_stones_flagged(self):
-        import extract_shot_data as esd
+        import scraping.extract_shot_data as esd
 
         # Radius OK but a stone is detected far outside the house
         patches = self._make_minimal_pdf_mocks(detected_radius=112, suspect=True)
@@ -919,7 +907,7 @@ class TestRunCalibrationDiagnostic:
         assert results[0]["shot1_suspect"] >= 1
 
     def test_download_failure_returns_error_status(self):
-        import extract_shot_data as esd
+        import scraping.extract_shot_data as esd
 
         def bad_open(_):
             raise RuntimeError("404 Not Found")
@@ -933,7 +921,7 @@ class TestRunCalibrationDiagnostic:
         assert results[0]["status"] == "error"
 
     def test_no_shot_pages_status(self):
-        import extract_shot_data as esd
+        import scraping.extract_shot_data as esd
         import numpy as np
 
         class FakePDF:
@@ -949,7 +937,7 @@ class TestRunCalibrationDiagnostic:
         assert results[0]["status"] == "no_shot_pages"
 
     def test_verbose_output_contains_summary(self, capsys):
-        import extract_shot_data as esd
+        import scraping.extract_shot_data as esd
 
         patches = self._make_minimal_pdf_mocks(detected_radius=112, suspect=False)
         with (
@@ -976,7 +964,7 @@ class TestDetectHouseCenterFallback:
         """Grayscale rings should be detected by circle fallback without warning."""
         import numpy as np
         import cv2
-        import extract_shot_data as esd
+        import scraping.extract_shot_data as esd
 
         h = 644
         w = 323

@@ -272,14 +272,14 @@ SITE_AVAILABLE = _url_accessible(RESULTS_URL)
 @pytest.mark.skipif(not SITE_AVAILABLE, reason="curlit.com not accessible")
 class TestLiveScrape:
     def test_scrape_returns_results(self):
-        from scrape_results import fetch_page
+        from scraping.scrape_results import fetch_page
         html = fetch_page(RESULTS_URL)
         rows = scrape_results(html)
         # The page has many result books; we expect at least 100
         assert len(rows) > 100
 
     def test_all_rows_have_required_fields(self):
-        from scrape_results import fetch_page
+        from scraping.scrape_results import fetch_page
         html = fetch_page(RESULTS_URL)
         rows = scrape_results(html)
         for row in rows:

@@ -167,6 +167,8 @@ def scrape_results(html: str):
             continue
 
         name, year, location = parse_tournament_text(tournament_text)
+        if not name or not year:
+            continue
 
         # Column index 3 = Results Book, 4 = Results Summary
         rb_cell = tds[3]

@@ -304,7 +304,7 @@ class TestPermissiveBlobs:
 
     def test_play_area_crop_excludes_very_top(self):
         """Blobs in the excluded top region (y < STONE_Y_MIN_PX) are not returned."""
-        from extract_shot_data import STONE_Y_MIN_PX
+        from scraping.extract_shot_data import STONE_Y_MIN_PX
         # Place a stone just above the top exclusion zone
         mask = self._solid_mask(HOUSE_CX, STONE_Y_MIN_PX - 5, radius=9)
         scale_sq = 1.0
@@ -540,7 +540,7 @@ class TestPrintSummary:
 class TestEvaluatePdfIntegration:
     def test_evaluate_pdf_max_1_end(self):
         """Smoke test: evaluate the first end of the ECC2025 PDF."""
-        from evaluate_detection import evaluate_pdf
+        from scraping.evaluate_detection import evaluate_pdf
         summary, shot_records = evaluate_pdf(PDF_URL, max_ends=1, verbose=False)
 
         assert summary  # non-empty dict
@@ -561,7 +561,7 @@ class TestEvaluatePdfIntegration:
 
     def test_evaluate_pdf_returns_consistent_summary_and_records(self):
         """Summary totals match per-shot record sums."""
-        from evaluate_detection import evaluate_pdf
+        from scraping.evaluate_detection import evaluate_pdf
         summary, shot_records = evaluate_pdf(PDF_URL, max_ends=2, verbose=False)
 
         assert summary["shots_evaluated"] == len(shot_records)
@@ -573,6 +573,7 @@ class TestEvaluatePdfIntegration:
         """evaluate_pdf handles a PDF with no shot pages gracefully."""
         import pdfplumber
         import io
+        from scraping.evaluate_detection import evaluate_pdf
         # Skip if we can't create a minimal blank PDF easily — just check
         # the integration path doesn't crash on first-end evaluation.
         # Actual no-shot-page behaviour is covered by mocking if needed; here

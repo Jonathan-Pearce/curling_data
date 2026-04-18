@@ -38,20 +38,14 @@ from __future__ import annotations
 
 import argparse
 import csv
-import json
 import math
 import os
-import sys
 
 import cv2
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
-# Allow ``python src/scraping/evaluate_detection.py`` to resolve sibling packages.
-if __package__ is None or __package__ == "":
-    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-from scraping.extract_shot_data import (
+from extract_shot_data import (
     _open_pdf,
     find_shot_pages,
     _get_shot_images,
@@ -178,10 +172,6 @@ def _permissive_blobs(mask, house_cx, house_cy, house_radius, orientation, scale
                 continue
             sx = Mc["m10"] / Mc["m00"]
             sy = Mc["m01"] / Mc["m00"]
-
-        # Exclude blobs in the top dead zone (same exclusion as production)
-        if sy < STONE_Y_MIN_PX:
-            continue
 
         if orientation == "top":
             nx = (sx - house_cx) / house_radius
@@ -706,12 +696,6 @@ def main():
         metavar="PATH",
         help="Write per-shot evaluation records to a CSV file.",
     )
-    parser.add_argument(
-        "--json-out",
-        default=None,
-        metavar="PATH",
-        help="Write aggregate summary metrics to a JSON file (for CI collection).",
-    )
     args = parser.parse_args()
 
     print(f"Evaluating: {args.pdf}")
@@ -736,12 +720,6 @@ def main():
             writer.writeheader()
             writer.writerows(shot_records)
         print(f"Per-shot results written to {args.csv_out}")
-
-    if args.json_out and summary:
-        os.makedirs(os.path.dirname(os.path.abspath(args.json_out)), exist_ok=True)
-        with open(args.json_out, "w", encoding="utf-8") as f:
-            json.dump(summary, f, indent=2)
-        print(f"Aggregate metrics written to {args.json_out}")
 
     if args.overlay_dir:
         print(f"Overlay images saved to {args.overlay_dir}/")

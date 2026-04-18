@@ -178,7 +178,7 @@ class TestJoinBehaviour:
         """Shots from different ends get context from the correct end row."""
         shots = _shots_df([
             {"end_number": 1, "team_code": "AAA"},
-            {"end_number": 2, "team_code": "BBB"},
+            {"end_number": 2, "team_code": "AAA"},
         ])
         ends = _ends_df([
             {"end_number": 1, "team1_code": "AAA", "team2_code": "BBB",
