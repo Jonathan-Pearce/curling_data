@@ -1,10 +1,6 @@
-"""Root conftest.py — adds src/ to sys.path so tests can import modules directly.
+"""Root conftest.py — pytest configuration root marker.
 
-Tests use bare imports like ``from build_features import enrich_features``.
-This file ensures that works after the source files were moved into src/.
+``pyproject.toml`` sets ``pythonpath = ["src"]`` so that package imports such
+as ``from scraping.extract_shot_data import ...`` work without any manual
+``sys.path`` manipulation here.
 """
-
-import sys
-import os
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))

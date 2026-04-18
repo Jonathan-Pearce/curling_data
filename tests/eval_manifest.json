@@ -1,0 +1,107 @@
+{
+  "_comment": "PDF evaluation manifest. Each entry describes a results-book PDF to include in the CI detection-accuracy evaluation. Download each file to 'example raw data/' before running. PDFs are NOT committed to the repo due to size — CI skips any entry whose file is absent.",
+  "_skip_event_types": ["mxd", "mx"],
+  "_skip_event_types_reason": "Mixed Doubles (6 stones) and Mixed (different stone counts) are not yet supported by the standard pipeline.",
+  "pdfs": [
+    {
+      "filename": "ECC2025_ResultsBook_Men_A-Division.pdf",
+      "url": "https://curlit.com/PDF/ECC2025_ResultsBook_Men_A-Division.pdf",
+      "event": "European Curling Championships 2025 A-Division",
+      "year": 2025,
+      "gender": "m",
+      "type": "european-a",
+      "max_ends": 5,
+      "notes": "Already present. Most recent event; used for initial evaluation baseline."
+    },
+    {
+      "filename": "WMCC2023_ResultsBook.pdf",
+      "url": "https://curlit.com/PDF/WMCC2023_ResultsBook.pdf",
+      "event": "World Men's Curling Championship 2023",
+      "year": 2023,
+      "gender": "m",
+      "type": "world-championship",
+      "max_ends": 5,
+      "notes": "Already present. World-level men's event, 2023 PDF generation."
+    },
+    {
+      "filename": "WWCC2024_ResultsBook.pdf",
+      "url": "https://curlit.com/PDF/WWCC2024_ResultsBook.pdf",
+      "event": "World Women's Curling Championship 2024",
+      "year": 2024,
+      "gender": "w",
+      "type": "world-championship",
+      "max_ends": 5,
+      "notes": "Women's world championship. Tests colour calibration for yellow-dominated ends."
+    },
+    {
+      "filename": "WMCC2024_ResultsBook.pdf",
+      "url": "https://curlit.com/PDF/WMCC2024_ResultsBook.pdf",
+      "event": "World Men's Curling Championship 2024",
+      "year": 2024,
+      "gender": "m",
+      "type": "world-championship",
+      "max_ends": 5,
+      "notes": "World-level men's event, 2024 PDF generation. Validates year-over-year consistency."
+    },
+    {
+      "filename": "WJCC2025_ResultsBook_Men.pdf",
+      "url": "https://curlit.com/PDF/WJCC2025_ResultsBook_Men.pdf",
+      "event": "World Junior Curling Championships 2025",
+      "year": 2025,
+      "gender": "m",
+      "type": "junior",
+      "max_ends": 5,
+      "notes": "Junior event. Tests whether PDF layout is consistent with senior events."
+    },
+    {
+      "filename": "ECC2024_ResultsBook_Women_A-Division.pdf",
+      "url": "https://curlit.com/PDF/ECC2024_ResultsBook_Women_A-Division.pdf",
+      "event": "European Curling Championships 2024 A-Division",
+      "year": 2024,
+      "gender": "w",
+      "type": "european-a",
+      "max_ends": 5,
+      "notes": "Women's European A-Division 2024. Checks layout stability across gender and year."
+    },
+    {
+      "filename": "WMCC2022_ResultsBook.pdf",
+      "url": "https://curlit.com/PDF/WMCC2022_ResultsBook.pdf",
+      "event": "World Men's Curling Championship 2022",
+      "year": 2022,
+      "gender": "m",
+      "type": "world-championship",
+      "max_ends": 5,
+      "notes": "Three years older than 2025 events. Catches any formatting drift since 2022."
+    },
+    {
+      "filename": "PCCC2024_ResultsBook_Men_A-Division.pdf",
+      "url": "https://curlit.com/PDF/PCCC2024_ResultsBook_Men_A-Division.pdf",
+      "event": "Pan Continental Curling Championships 2024 A-Division",
+      "year": 2024,
+      "gender": "m",
+      "type": "pan-continental-a",
+      "max_ends": 5,
+      "notes": "Non-European/World event. Tests whether regional championships share the same PDF format."
+    },
+    {
+      "filename": "WMCC2021_ResultsBook.pdf",
+      "url": "https://curlit.com/PDF/WMCC2021_ResultsBook.pdf",
+      "event": "World Men's Curling Championship 2021",
+      "year": 2021,
+      "gender": "m",
+      "type": "world-championship",
+      "max_ends": 5,
+      "notes": "Post-COVID bubble event. Catches any older-format edge cases from 2021."
+    },
+    {
+      "filename": "ECC2022_ResultsBook_Men_A-Division.pdf",
+      "url": "https://curlit.com/PDF/ECC2022_ResultsBook_Men_A-Division.pdf",
+      "event": "European Curling Championships 2022 A-Division",
+      "year": 2022,
+      "gender": "m",
+      "type": "european-a",
+      "max_ends": 5,
+      "notes": "European A-Division 2022. Complements the 2025 ECC already present."
+    }
+  ]
+}

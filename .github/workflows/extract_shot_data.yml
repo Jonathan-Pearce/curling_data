@@ -45,14 +45,14 @@ jobs:
 
       - name: Scrape result URLs
         if: ${{ github.event.inputs.pdf_url == '' }}
-        run: python scrape_results.py --output-dir output
+        run: python src/scraping/scrape_results.py --output-dir output
 
       - name: Extract shot data
         run: |
           if [ -n "${{ github.event.inputs.pdf_url }}" ]; then
-            python extract_shot_data.py "${{ github.event.inputs.pdf_url }}" --output-dir output
+            python src/scraping/extract_shot_data.py "${{ github.event.inputs.pdf_url }}" --output-dir output
           else
-            python extract_shot_data.py --output-dir output
+            python src/scraping/extract_shot_data.py --output-dir output
           fi
 
       - name: Commit and push updated data files

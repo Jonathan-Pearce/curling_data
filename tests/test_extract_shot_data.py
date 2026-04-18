@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 import pytest
 
-from extract_shot_data import (
+from scraping.extract_shot_data import (
     parse_end_line,
     parse_match_header,
     parse_score_box,

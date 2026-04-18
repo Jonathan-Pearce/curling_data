@@ -9,7 +9,7 @@ import cv2
 import numpy as np
 import pytest
 
-from evaluate_detection import (
+from scraping.evaluate_detection import (
     _match_sets,
     _permissive_blobs,
     _build_colour_masks,
@@ -18,9 +18,8 @@ from evaluate_detection import (
     _aggregate,
     print_summary,
     MATCH_RADIUS,
-    GT_FILL_RATIO,
 )
-from extract_shot_data import (
+from scraping.extract_shot_data import (
     HOUSE_CX,
     HOUSE_CY,
     HOUSE_RADIUS,
@@ -239,9 +238,14 @@ class TestPermissiveBlobs:
         assert len(ghosts) == 0
 
     def test_ring_blob_classified_as_ghost(self):
-        """An annular ring classifies as a ghost, not a filled stone."""
+        """An annular ring classifies as a ghost, not a filled stone.
+
+        Real ghost rings in PDFs are thin outline circles.  With outer_r=12
+        and inner_r=10 the fill_ratio ≈ 1 - (10/12)² ≈ 0.31, well below
+        STONE_MIN_FILL_RATIO (0.45).
+        """
         cx, cy = HOUSE_CX, HOUSE_CY + 50
-        mask = self._ring_mask(cx, cy, outer_r=12, inner_r=7)
+        mask = self._ring_mask(cx, cy, outer_r=12, inner_r=10)
         scale_sq = 1.0
         filled, ghosts = _permissive_blobs(
             mask, HOUSE_CX, float(HOUSE_CY), float(HOUSE_RADIUS),

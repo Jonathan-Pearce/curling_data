@@ -6,7 +6,7 @@ import os
 import pandas as pd
 import pytest
 
-from verify_stone_tracking import (
+from tracking.verify_stone_tracking import (
     _check_columns_present,
     _check_first_shot_invariant,
     _check_matched_displacement,

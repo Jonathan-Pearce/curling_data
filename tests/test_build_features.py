@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from build_features import enrich_features
+from ml.build_features import enrich_features
 
 
 # ---------------------------------------------------------------------------

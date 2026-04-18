@@ -49,11 +49,16 @@ Evaluation helpers (importable)::
 import argparse
 import math
 import os
+import sys
 
 import numpy as np
 import pandas as pd
 
-from extract_shot_data import MAX_STONES_PER_TEAM, STONE_TRACK_MAX_DIST
+# Allow ``python src/tracking/track_stones.py`` to resolve sibling packages.
+if __package__ is None or __package__ == "":
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from scraping.extract_shot_data import MAX_STONES_PER_TEAM, STONE_TRACK_MAX_DIST
 
 TRACKING_METHODS = ("greedy", "hungarian")
 

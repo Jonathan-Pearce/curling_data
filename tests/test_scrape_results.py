@@ -7,7 +7,7 @@ import urllib.request
 
 import pytest
 
-from scrape_results import (
+from scraping.scrape_results import (
     parse_tournament_text,
     scrape_results,
     write_csv,

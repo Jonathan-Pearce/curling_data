@@ -7,7 +7,7 @@ import pandas as pd
 import pytest
 from PIL import Image
 
-from generate_board_image import (
+from shared.generate_board_image import (
     generate_board_image,
     generate_board_image_from_parquet,
     _extract_stones,

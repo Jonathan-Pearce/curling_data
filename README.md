@@ -39,26 +39,40 @@ curling_data/
 │   ├── ends.csv
 │   └── shot_locations.parquet      # Primary shot data (binary; CSV is gitignored)
 ├── tests/
+│   ├── eval_manifest.json          # PDF evaluation manifest for CI
 │   ├── test_extract_shot_data.py
 │   ├── test_generate_board_image.py
 │   ├── test_scrape_results.py
+│   ├── test_evaluate_detection.py
+│   ├── test_track_stones.py
+│   ├── test_build_features.py
 │   └── test_verify_stone_tracking.py
 ├── docs/                           # Reference documentation and development notes
 │   ├── data_quality_audit.md       # Data quality findings and re-scrape verification
 │   ├── scraping_improvements.md    # Proposals for pipeline improvements
 │   ├── stone_location_accuracy_improvements.md
 │   └── tracking_verification_guide.md
-├── src/                            # Python source files
-│   ├── build_features.py           # Enriches shot data with game-context columns
-│   ├── evaluate_detection.py       # Stone detection accuracy evaluation
-│   ├── extract_shot_data.py        # Main extraction script
-│   ├── generate_board_image.py     # Board image generation for data QA
-│   ├── scrape_results.py           # Scrapes curlit.com for tournament PDF URLs
-│   ├── track_stones.py             # Stone tracking across shots within an end
-│   └── verify_stone_tracking.py   # Post-scrape stone tracking validation
-├── example raw data/               # Sample PDFs used by integration tests
+├── src/                            # Python packages (add src/ to PYTHONPATH for CLI use)
+│   ├── scraping/                   # PDF scraping and stone detection
+│   │   ├── extract_shot_data.py    # Main extraction script
+│   │   ├── scrape_results.py       # Scrapes curlit.com for tournament PDF URLs
+│   │   └── evaluate_detection.py   # Stone detection accuracy evaluation
+│   ├── tracking/                   # Stone tracking across shots
+│   │   ├── track_stones.py         # Stone tracking across shots within an end
+│   │   └── verify_stone_tracking.py  # Post-scrape stone tracking validation
+│   ├── ml/
+│   │   └── build_features.py       # Enriches shot data with game-context columns
+│   └── shared/
+│       └── generate_board_image.py # Board image generation for data QA
+├── ci_scripts/
+│   └── evaluate_all.py             # Runs evaluate_detection on all manifested PDFs
+├── example raw data/               # Sample PDFs used by integration tests and CI
 ├── investigations/                 # Exploratory analysis notebooks
-├── conftest.py                     # pytest path configuration
+├── .github/workflows/
+│   ├── ci.yml                      # Unit tests + detection accuracy evaluation
+│   └── extract_shot_data.yml       # Manual/scheduled data extraction workflow
+├── conftest.py                     # pytest root marker (pythonpath set in pyproject.toml)
+├── pyproject.toml                  # Pytest config: pythonpath = ["src"]
 ├── requirements.txt
 └── README.md
 ```
@@ -124,25 +138,25 @@ For each shot crop in a PDF it runs both a permissive ground-truth blob extracti
 Quick smoke-test on the first 3 ends of a local PDF:
 
 ```bash
-python src/evaluate_detection.py "example raw data/ECC2025_ResultsBook_Men_A-Division.pdf" --max-ends 3
+python src/scraping/evaluate_detection.py "example raw data/ECC2025_ResultsBook_Men_A-Division.pdf" --max-ends 3
 ```
 
 Or directly from a URL:
 
 ```bash
-python src/evaluate_detection.py https://curlit.com/PDF/ECC2025_ResultsBook_Men_A-Division.pdf --max-ends 3
+python src/scraping/evaluate_detection.py https://curlit.com/PDF/ECC2025_ResultsBook_Men_A-Division.pdf --max-ends 3
 ```
 
 Full evaluation with per-shot CSV output:
 
 ```bash
-python src/evaluate_detection.py https://curlit.com/PDF/ECC2025_ResultsBook_Men_A-Division.pdf --csv-out eval_out/results.csv
+python src/scraping/evaluate_detection.py https://curlit.com/PDF/ECC2025_ResultsBook_Men_A-Division.pdf --csv-out eval_out/results.csv
 ```
 
 Save annotated overlay images (green circles = TP, orange cross = FP, red cross = FN):
 
 ```bash
-python src/evaluate_detection.py "example raw data/ECC2025_ResultsBook_Men_A-Division.pdf" --max-ends 2 --overlay-dir eval_out/overlays/
+python src/scraping/evaluate_detection.py "example raw data/ECC2025_ResultsBook_Men_A-Division.pdf" --max-ends 2 --overlay-dir eval_out/overlays/
 ```
 
 Example summary output:
@@ -178,7 +192,7 @@ Example summary output:
 The function can also be used programmatically:
 
 ```python
-from evaluate_detection import evaluate_pdf, print_summary
+from scraping.evaluate_detection import evaluate_pdf, print_summary
 
 summary, shot_records = evaluate_pdf("path/to/event.pdf", max_ends=5)
 print_summary(summary)
@@ -191,13 +205,13 @@ Recreate curling board images from the scraped data for data quality verificatio
 Generate a board image for a specific shot:
 
 ```bash
-python src/generate_board_image.py --event 1 --match 1 --end 7 --shot 12 -o board.png
+python src/shared/generate_board_image.py --event 1 --match 1 --end 7 --shot 12 -o board.png
 ```
 
 The function can also be used programmatically:
 
 ```python
-from generate_board_image import generate_board_image, generate_board_image_from_parquet
+from shared.generate_board_image import generate_board_image, generate_board_image_from_parquet
 
 # From the parquet file
 img = generate_board_image_from_parquet("output/shot_locations.parquet", event_id=1, match_id=1, end_number=7, shot_number=12)
@@ -206,6 +220,50 @@ img.save("board.png")
 # From a shot data dict (e.g. a row from shot_locations.parquet)
 img = generate_board_image(shot_data)
 img.show()
+```
+
+## CI / Quality Tracking
+
+`.github/workflows/ci.yml` runs two jobs on every push or PR that touches `src/`, `tests/`, or `pyproject.toml`:
+
+### Job 1 — Unit Tests
+
+Runs the full pytest suite (no network required). All tests must pass for the PR to merge.
+
+```bash
+# Locally equivalent:
+pytest
+```
+
+### Job 2 — Detection Accuracy Evaluation (report-only)
+
+Evaluates stone detection accuracy against any PDFs committed to `example raw data/`, then uploads a `metrics.json` artifact. **This job never fails the build** — it exists purely to track quality trends over time.
+
+The manifest of PDFs to evaluate lives in [`tests/eval_manifest.json`](tests/eval_manifest.json). PDFs are not stored in the repo (binary size); add them manually:
+
+| File | URL |
+|------|-----|
+| ECC2025_ResultsBook_Men_A-Division.pdf | https://curlit.com/PDF/ECC2025_ResultsBook_Men_A-Division.pdf |
+| WMCC2023_ResultsBook.pdf | https://curlit.com/PDF/WMCC2023_ResultsBook.pdf |
+| WWCC2024_ResultsBook.pdf | https://curlit.com/PDF/WWCC2024_ResultsBook.pdf |
+| WMCC2024_ResultsBook.pdf | https://curlit.com/PDF/WMCC2024_ResultsBook.pdf |
+| WJCC2025_ResultsBook_Men.pdf | https://curlit.com/PDF/WJCC2025_ResultsBook_Men.pdf |
+| ECC2024_ResultsBook_Women_A-Division.pdf | https://curlit.com/PDF/ECC2024_ResultsBook_Women_A-Division.pdf |
+| WMCC2022_ResultsBook.pdf | https://curlit.com/PDF/WMCC2022_ResultsBook.pdf |
+| PCCC2024_ResultsBook_Men_A-Division.pdf | https://curlit.com/PDF/PCCC2024_ResultsBook_Men_A-Division.pdf |
+| WMCC2021_ResultsBook.pdf | https://curlit.com/PDF/WMCC2021_ResultsBook.pdf |
+| ECC2022_ResultsBook_Men_A-Division.pdf | https://curlit.com/PDF/ECC2022_ResultsBook_Men_A-Division.pdf |
+
+Run the evaluation locally across all present PDFs:
+
+```bash
+python ci_scripts/evaluate_all.py
+```
+
+Or limit to a quick 2-end smoke-test on each:
+
+```bash
+python ci_scripts/evaluate_all.py --max-ends 2
 ```
 
 ## Output Tables

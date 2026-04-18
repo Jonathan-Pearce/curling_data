@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from track_stones import (
+from tracking.track_stones import (
     _track_greedy,
     _track_hungarian,
     apply_tracking,
@@ -20,7 +20,7 @@ from track_stones import (
     stone_count_consistency_rate,
     TRACKING_METHODS,
 )
-from extract_shot_data import MAX_STONES_PER_TEAM, STONE_TRACK_MAX_DIST
+from scraping.extract_shot_data import MAX_STONES_PER_TEAM, STONE_TRACK_MAX_DIST
 
 
 # ---------------------------------------------------------------------------
