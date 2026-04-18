@@ -37,23 +37,10 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-
-      - name: Cache virtualenv
-        id: cache-venv
-        uses: actions/cache@v4
-        with:
-          path: .venv
-          key: venv-${{ runner.os }}-py3.12-${{ hashFiles('requirements.txt') }}
+          cache: "pip"
 
       - name: Install dependencies
-        if: steps.cache-venv.outputs.cache-hit != 'true'
-        run: |
-          python -m venv .venv
-          .venv/bin/pip install --upgrade pip
-          .venv/bin/pip install -r requirements.txt
-
-      - name: Add venv to PATH
-        run: echo "$GITHUB_WORKSPACE/.venv/bin" >> $GITHUB_PATH
+        run: pip install -r requirements.txt
 
       - name: Run unit tests
         # pyproject.toml sets pythonpath = ["src"], so no PYTHONPATH override needed.
@@ -88,23 +75,10 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-
-      - name: Cache virtualenv
-        id: cache-venv
-        uses: actions/cache@v4
-        with:
-          path: .venv
-          key: venv-${{ runner.os }}-py3.12-${{ hashFiles('requirements.txt') }}
+          cache: "pip"
 
       - name: Install dependencies
-        if: steps.cache-venv.outputs.cache-hit != 'true'
-        run: |
-          python -m venv .venv
-          .venv/bin/pip install --upgrade pip
-          .venv/bin/pip install -r requirements.txt
-
-      - name: Add venv to PATH
-        run: echo "$GITHUB_WORKSPACE/.venv/bin" >> $GITHUB_PATH
+        run: pip install -r requirements.txt
 
       - name: List available sample PDFs
         run: |
