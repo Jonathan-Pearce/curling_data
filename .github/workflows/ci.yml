@@ -46,7 +46,7 @@ jobs:
         # pyproject.toml sets pythonpath = ["src"], so no PYTHONPATH override needed.
         # Tests marked as needing network access are automatically skipped here
         # because the PDFs are not present on the runner.
-        run: pytest -v --tb=short
+        run: python -m pytest -v --tb=short
 
   # ──────────────────────────────────────────────────────────────────────────
   # Job 2: Detection accuracy evaluation (report-only, never fails the build)
