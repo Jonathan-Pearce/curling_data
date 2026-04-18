@@ -1,6 +1,6 @@
 # GNN Data Readiness Assessment
 
-**Date:** 2026-03-24
+**Date:** 2026-04-18
 
 Assessment of the current data pipeline state against the requirements of a Graph Neural
 Network (GNN) model for curling shot prediction and evaluation.
@@ -14,6 +14,9 @@ Network (GNN) model for curling shot prediction and evaluation.
 | Board state (x, y, dist, angle per stone, both teams, all 16 shots) | ✅ Ready |
 | Normalised coordinates (house-radius units, consistent orientation) | ✅ Ready |
 | Stone IDs + displacement vectors after `track_stones.py` | ✅ Ready |
+| `is_shot_stone` flag per stone slot | ✅ Ready |
+| Ghost-to-stone ID matching (`team{N}_ghost{K}_stone_id`) | ✅ Ready |
+| Game-context columns (`shooting_team_has_hammer`, `score_diff_before`, etc.) | ✅ Ready |
 | Shot metadata (shot_type, accuracy, turn) as prediction targets | ✅ Ready |
 | Parquet format, event-level train/val/test split boundary defined | ✅ Ready |
 | Separation of raw detection from tracking (algorithms are swappable) | ✅ Ready |
@@ -22,86 +25,34 @@ Network (GNN) model for curling shot prediction and evaluation.
 
 ## Critical Gaps — Address Before Training
 
-### 1. `is_shot_stone` flag is missing
+### 1. `is_shot_stone` flag ✅ Implemented
 
-**Priority: High**
+`apply_tracking()` in `track_stones.py` writes `team{N}_stone{S}_is_shot_stone` for
+every stone slot.  `True` = this stone was just delivered; `False` = carried from the
+previous shot; `NaN` = ambiguous (first shot of end, or zero/multiple newly placed
+stones in one shot).
 
-The stone that was just delivered is the single most informative node in every graph.
-With tracking in place it is fully derivable: at `shot_number > 1`, the stone with
-`prev_x = NaN` that was absent from shot $N-1$ is the delivered stone. `apply_tracking()`
-already computes this implicitly — it just does not write a flag column.
+### 2. `shooting_team_is_team1` ✅ Implemented
 
-Edge cases to handle:
-- `shot_number = 1`: all stones have `prev_x = NaN` (first delivery of the end). Store
-  `NaN` / `None` to indicate ambiguity rather than marking every stone as the shot stone.
-- Take-out: simultaneously produces one new stone (delivered) and removes one (hit out).
-  The delivered stone is identifiable as the one with no matching stone in `prev_state`
-  *after* the outgoing stone has been accounted for.
+`build_features.py` pre-joins `shooting_team_is_team1`, `shooting_team_has_hammer`,
+`score_diff_before`, and raw scores from `ends.csv` onto `shot_locations.parquet`.
 
-Without this flag, the GNN has to infer which stone was just thrown from the board state
-alone, which adds noise to every training example.
+### 3. Game-context columns ✅ Implemented
 
-**Implementation:** Add `team{N}_stone{S}_is_shot_stone` columns (bool/NaN) in
-`track_stones.py` during `apply_tracking()`.
-
----
-
-### 2. `shooting_team_is_team1` is not pre-computed
-
-**Priority: High**
-
-The GNN needs to encode each stone as either **"shooting team"** or **"opponent"** — a
-more natural and permutation-stable node feature than an absolute `team1`/`team2` label.
-Resolving it requires joining `team_code` (in `shot_locations`) against `team1_code` /
-`team2_code` (in `ends.csv`). This join is not pre-computed.
-
-**Implementation:** Add a boolean column `shooting_team_is_team1` to `shot_locations`
-during the feature enrichment step; `True` when `team_code == team1_code` for that end.
-
----
-
-### 3. Game-context columns are not in `shot_locations`
-
-**Priority: High**
-
-`hammer_team_code`, `team1_score_before`, `team2_score_before` are in `ends.csv` only.
-Hammer determines the strategy of almost every shot in curling and is a critical input.
-Requiring a join at training time is friction and a source of bugs (wrong key, forgetting
-conceded-end handling, etc.).
-
-**Columns to pre-join onto `shot_locations`:**
-- `hammer_team_code` — which team has last-stone advantage this end
-- `shooting_team_has_hammer` — derived bool: `team_code == hammer_team_code`
-- `score_diff_before` — derived: `team1_score_before - team2_score_before`
-- `team1_score_before`, `team2_score_before` — raw scores for completeness
-
-**Implementation:** Add a `build_features.py` (or extend `track_stones.py`) step that
-reads both `shot_locations_raw.parquet` and `ends.csv`, joins the four columns above,
-and writes the enriched `shot_locations.parquet`.
-
----
-
-### 4. Tracking quality under take-outs is unvalidated
-
-**Priority: High**
-
-`stone_id` columns are what temporal GNN edges are built on. ID fragmentation under
-double/triple take-outs (where two or three stones move simultaneously) is unknown. The
-displacement distribution diagnostic gives signal about threshold calibration but does not
-confirm ID correctness under multi-stone events.
-
-Incorrect IDs produce incorrect temporal edges — training examples where the "same stone"
-at $t-1$ and $t$ is actually a different physical stone, silently poisoning the training
-signal.
-
-**Implementation:** Run `python track_stones.py --displacement` on the real dataset and
-inspect the distribution. If the threshold zone fraction exceeds 5%, retune
-`STONE_TRACK_MAX_DIST` before proceeding. See `docs/tracking_evaluation.md` for full
-diagnostic procedure.
+See §2.  All four columns required by the GNN are now pre-joined.
 
 ---
 
 ## Medium Priority
+
+### 4. Ghost-to-stone matching ✅ Implemented
+
+`apply_tracking()` now writes `team{N}_ghost{K}_stone_id` for every ghost slot when
+ghost coordinate columns are present in the input DataFrame.  The match pool for each
+ghost is the full `prev_state` snapshot from the preceding shot (covers both
+still-in-play displaced stones and knocked-out stones).  Matching distance threshold:
+`GHOST_MATCH_MAX_DIST = 0.20` normalised units.  `NaN` when no prior state exists
+(first shot of end) or when no previous stone falls within the threshold.
 
 ### 5. Distance-sorted slots will confuse temporal learning if not handled carefully
 
@@ -146,12 +97,13 @@ These do not require changes to the scraping or tracking pipeline:
 
 ## Recommended Implementation Order
 
-| Step | Task | Where |
-|:---:|---|---|
-| 1 | Add `is_shot_stone` flag column per stone slot | `track_stones.py` / `apply_tracking()` |
-| 2 | Pre-join `shooting_team_is_team1`, `shooting_team_has_hammer`, `score_diff_before`, raw scores onto `shot_locations` | New `build_features.py` or extend `track_stones.py` |
-| 3 | Run displacement distribution diagnostic on real dataset; retune `STONE_TRACK_MAX_DIST` if needed | CLI: `python track_stones.py --displacement` |
-| 4 | Write `build_graph_dataset.py` — converts enriched parquet into PyG `InMemoryDataset` | New file |
+| Step | Task | Status | Where |
+|:---:|---|---|---|
+| 1 | Add `is_shot_stone` flag column per stone slot | ✅ Done | `track_stones.py` / `apply_tracking()` |
+| 2 | Pre-join `shooting_team_is_team1`, `shooting_team_has_hammer`, `score_diff_before`, raw scores onto `shot_locations` | ✅ Done | `build_features.py` |
+| 3 | Add `ghost_stone_id` matching — link ghost rings to the stone that was displaced | ✅ Done | `track_stones.py` / `apply_tracking()` |
+| 4 | Run displacement distribution diagnostic on real dataset; retune `STONE_TRACK_MAX_DIST` if needed | ⬜ Pending | CLI: `python track_stones.py --displacement` |
+| 5 | Write `build_graph_dataset.py` — converts enriched parquet into PyG `InMemoryDataset` | ⬜ Pending | New file |
 
-Steps 1 and 2 are data pipeline changes. Step 3 is a one-time calibration run. Step 4 is
-the bridge into model training.
+Steps 1–3 are data pipeline changes and are complete.  Step 4 is a one-time calibration
+run.  Step 5 is the bridge into model training.

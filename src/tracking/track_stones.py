@@ -183,6 +183,11 @@ _TRACK_FN = {
     "hungarian": _track_hungarian,
 }
 
+# Maximum distance (normalised house-radius units) within which a ghost ring
+# is matched to a stone's previous-shot position.  Slightly larger than
+# STONE_TRACK_MAX_DIST to absorb ghost-detection pixel imprecision.
+GHOST_MATCH_MAX_DIST = 0.20
+
 # ---------------------------------------------------------------------------
 # DataFrame-level tracking
 # ---------------------------------------------------------------------------
@@ -216,6 +221,15 @@ def apply_tracking(raw_df, method="greedy"):
         ``NaN`` when the delivered stone cannot be identified unambiguously
         (first shot of end, or tracking fragmentation produced zero or
         multiple newly-placed stones in a single shot).
+
+        If *raw_df* contains ghost columns (``team{N}_ghost{K}_x`` /
+        ``team{N}_ghost{K}_y`` and ``team{N}_ghosts_in_play``), one
+        additional column per ghost slot is appended:
+        ``team{N}_ghost{K}_stone_id`` — the ID of the stone that occupied
+        the ghost position at the preceding shot.  Matched by nearest
+        previous-shot position within ``GHOST_MATCH_MAX_DIST``.  ``NaN``
+        when no prior state exists (first shot of end) or no match falls
+        within the threshold.
     """
     if method not in _TRACK_FN:
         raise ValueError(
@@ -235,6 +249,13 @@ def apply_tracking(raw_df, method="greedy"):
                 df[col] = np.nan
                 tracking_cols.append(col)
 
+    # Pre-allocate ghost_stone_id columns only if ghost coordinate columns exist.
+    _has_ghosts = f"team1_ghost1_x" in df.columns
+    if _has_ghosts:
+        for ti in (1, 2):
+            for gi in range(1, MAX_STONES_PER_TEAM + 1):
+                df[f"team{ti}_ghost{gi}_stone_id"] = np.nan
+
     group_keys = ["event_id", "match_id", "end_number"]
     for _, end_idx in df.groupby(group_keys, sort=True).groups.items():
         end_view = df.loc[end_idx].sort_values("shot_number")
@@ -243,6 +264,11 @@ def apply_tracking(raw_df, method="greedy"):
 
         for row_pos in end_view.index:
             row = df.loc[row_pos]
+
+            # Snapshot the previous-shot positions for both teams before updating
+            # track_state.  Used below for ghost-to-stone matching.
+            prev_state_before = {ti: list(track_state[ti]) for ti in (1, 2)}
+
             matched_by_team = {}
             for ti in (1, 2):
                 n = int(row[f"team{ti}_stones_in_play"] or 0)
@@ -288,6 +314,37 @@ def apply_tracking(raw_df, method="greedy"):
                             si = slot_idx + 1
                             is_shot = 1.0 if (ti == shot_ti and si == shot_si) else 0.0
                             df.at[row_pos, f"team{ti}_stone{si}_is_shot_stone"] = is_shot
+
+            # Ghost-to-stone matching.
+            # For each ghost ring of team N at position (gx, gy), find the
+            # stone from the previous shot whose position was closest to that
+            # ghost position.  The match pool is prev_state_before[ti], which
+            # includes both stones that are still on the board (prev_x/prev_y
+            # records their prior position) and stones that were knocked out
+            # (they appear in prev_state_before but not in matched_by_team).
+            # First shot of end: prev_state_before is empty, all NaN.
+            if _has_ghosts and int(row["shot_number"]) > 1:
+                for ti in (1, 2):
+                    ghosts_count = row[f"team{ti}_ghosts_in_play"]
+                    ng = int(ghosts_count) if pd.notna(ghosts_count) else 0
+                    prev_positions = prev_state_before[ti]  # [(sid, px, py), ...]
+                    for gi in range(1, ng + 1):
+                        gx = row[f"team{ti}_ghost{gi}_x"]
+                        gy = row[f"team{ti}_ghost{gi}_y"]
+                        if pd.isna(gx) or pd.isna(gy):
+                            continue
+                        gx, gy = float(gx), float(gy)
+                        best_sid = None
+                        best_dist = GHOST_MATCH_MAX_DIST
+                        for sid, px, py in prev_positions:
+                            d = math.sqrt((gx - px) ** 2 + (gy - py) ** 2)
+                            if d < best_dist:
+                                best_dist = d
+                                best_sid = sid
+                        if best_sid is not None:
+                            df.at[row_pos, f"team{ti}_ghost{gi}_stone_id"] = float(
+                                best_sid
+                            )
 
     return df
 

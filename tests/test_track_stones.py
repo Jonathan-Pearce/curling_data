@@ -19,6 +19,7 @@ from tracking.track_stones import (
     displacement_symmetry,
     stone_count_consistency_rate,
     TRACKING_METHODS,
+    GHOST_MATCH_MAX_DIST,
 )
 from scraping.extract_shot_data import MAX_STONES_PER_TEAM, STONE_TRACK_MAX_DIST
 
@@ -958,3 +959,233 @@ class TestStoneCountConsistencyRate:
         df = apply_tracking(_raw_df([end1, end2]))
         result = stone_count_consistency_rate(df)
         assert result["total_shot_pairs"] == 3
+
+
+# ---------------------------------------------------------------------------
+# Ghost-to-stone matching
+# ---------------------------------------------------------------------------
+
+def _add_ghost_columns(df, ghosts_by_row):
+    """Add ghost columns to *df* in-place.
+
+    Parameters
+    ----------
+    df : pd.DataFrame  (result of ``_raw_df``)
+    ghosts_by_row : list of dict
+        One dict per row.  Keys: ``"t1"`` and ``"t2"``, each a list of
+        ``(x, y)`` tuples for that team's ghost positions in that row.
+        Missing keys default to an empty list.
+    """
+    for ti in (1, 2):
+        df[f"team{ti}_ghosts_in_play"] = 0
+        for gi in range(1, MAX_STONES_PER_TEAM + 1):
+            for suffix in ("_x", "_y", "_dist", "_angle"):
+                df[f"team{ti}_ghost{gi}{suffix}"] = np.nan
+
+    for row_idx, ghosts in enumerate(ghosts_by_row):
+        for ti, key in ((1, "t1"), (2, "t2")):
+            positions = ghosts.get(key, [])
+            df.at[row_idx, f"team{ti}_ghosts_in_play"] = len(positions)
+            for gi, (gx, gy) in enumerate(positions, start=1):
+                dist = math.sqrt(gx ** 2 + gy ** 2)
+                angle = math.degrees(math.atan2(gy, gx))
+                df.at[row_idx, f"team{ti}_ghost{gi}_x"] = round(gx, 3)
+                df.at[row_idx, f"team{ti}_ghost{gi}_y"] = round(gy, 3)
+                df.at[row_idx, f"team{ti}_ghost{gi}_dist"] = round(dist, 3)
+                df.at[row_idx, f"team{ti}_ghost{gi}_angle"] = round(angle, 1)
+    return df
+
+
+class TestGhostToStoneMatching:
+    """Tests for the ghost-to-stone matching logic in apply_tracking."""
+
+    @pytest.mark.parametrize("method", TRACKING_METHODS)
+    def test_no_ghost_cols_in_input_produces_no_ghost_id_cols(self, method):
+        """Backward compatibility: input without ghost columns → no ghost_stone_id output."""
+        df = _raw_df([[{"t1": [(0.1, 0.0)], "t2": []}]])
+        result = apply_tracking(df, method=method)
+        assert "team1_ghost1_stone_id" not in result.columns
+        assert "team2_ghost1_stone_id" not in result.columns
+
+    @pytest.mark.parametrize("method", TRACKING_METHODS)
+    def test_ghost_id_columns_created_when_ghost_cols_present(self, method):
+        """If raw_df has ghost columns, ghost_stone_id cols must appear in output."""
+        df = _raw_df([[{"t1": [(0.1, 0.0)], "t2": []}]])
+        _add_ghost_columns(df, [{"t1": [], "t2": []}])
+        result = apply_tracking(df, method=method)
+        for ti in (1, 2):
+            for gi in range(1, MAX_STONES_PER_TEAM + 1):
+                assert f"team{ti}_ghost{gi}_stone_id" in result.columns
+
+    @pytest.mark.parametrize("method", TRACKING_METHODS)
+    def test_first_shot_ghost_id_is_nan(self, method):
+        """Ghost on the first shot of an end: no prior state → NaN."""
+        shots = [{"t1": [(0.1, 0.0)], "t2": []}]
+        df = _raw_df([shots])
+        _add_ghost_columns(df, [{"t1": [(0.1, 0.0)]}])
+        result = apply_tracking(df, method=method)
+        # Shot 1 cannot be matched: prev_state is empty
+        assert pd.isna(result.loc[0, "team1_ghost1_stone_id"])
+
+    @pytest.mark.parametrize("method", TRACKING_METHODS)
+    def test_ghost_matched_to_displaced_stone_still_in_play(self, method):
+        """Ghost at exact previous position of a stone that moved and stayed in play.
+
+        Shot 1: stone A at (0.1, 0.0).
+        Shot 2: stone A has moved to (0.5, 0.0); ghost at (0.1, 0.0) marks former pos.
+
+        Expected: ghost1_stone_id at shot 2 == ID of stone A.
+        """
+        shots = [
+            {"t1": [(0.1, 0.0)], "t2": []},
+            # Stone A moved; a new stone B delivered at (0.7, 0.0)
+            {"t1": [(0.5, 0.0), (0.7, 0.0)], "t2": []},
+        ]
+        df = _raw_df([shots])
+        _add_ghost_columns(df, [
+            {"t1": [], "t2": []},
+            {"t1": [(0.1, 0.0)], "t2": []},  # ghost marks where A was at shot 1
+        ])
+        result = apply_tracking(df, method=method)
+
+        # Retrieve the ID assigned to stone A (was at 0.1 in slot 1 at shot 1)
+        stone_a_id = result.loc[0, "team1_stone1_id"]
+
+        # Ghost at shot 2 should be linked to stone A's ID
+        assert result.loc[1, "team1_ghost1_stone_id"] == pytest.approx(stone_a_id)
+
+    @pytest.mark.parametrize("method", TRACKING_METHODS)
+    def test_ghost_matched_to_knocked_out_stone(self, method):
+        """Ghost at previous position of a stone that was removed from the board.
+
+        Shot 1: team2 stone at (0.2, 0.0).
+        Shot 2: team2 stone gone (knocked out); ghost at (0.2, 0.0).
+
+        Expected: ghost1_stone_id at shot 2 == ID of the knocked-out stone.
+        """
+        shots = [
+            {"t1": [(0.1, 0.0)], "t2": [(0.2, 0.0)]},
+            # t2 stone knocked out; t1 delivers new stone
+            {"t1": [(0.1, 0.0), (0.6, 0.0)], "t2": []},
+        ]
+        df = _raw_df([shots])
+        _add_ghost_columns(df, [
+            {"t1": [], "t2": []},
+            {"t1": [], "t2": [(0.2, 0.0)]},  # ghost marks where t2 stone was
+        ])
+        result = apply_tracking(df, method=method)
+
+        knocked_out_id = result.loc[0, "team2_stone1_id"]
+
+        assert result.loc[1, "team2_ghost1_stone_id"] == pytest.approx(knocked_out_id)
+
+    @pytest.mark.parametrize("method", TRACKING_METHODS)
+    def test_ghost_beyond_threshold_is_nan(self, method):
+        """Ghost placed far from any previous stone → no match within threshold."""
+        shots = [
+            {"t1": [(0.1, 0.0)], "t2": []},
+            {"t1": [(0.1, 0.0), (0.5, 0.0)], "t2": []},
+        ]
+        df = _raw_df([shots])
+        _add_ghost_columns(df, [
+            {"t1": [], "t2": []},
+            # Ghost at (0.9, 0.0) — far from previous stone at (0.1, 0.0)
+            {"t1": [(0.9, 0.0)], "t2": []},
+        ])
+        result = apply_tracking(df, method=method)
+        assert pd.isna(result.loc[1, "team1_ghost1_stone_id"])
+
+    @pytest.mark.parametrize("method", TRACKING_METHODS)
+    def test_ghost_with_nan_coordinates_skipped(self, method):
+        """Ghost with NaN x/y writes no stone_id (no crash)."""
+        shots = [
+            {"t1": [(0.1, 0.0)], "t2": []},
+            {"t1": [(0.1, 0.0), (0.5, 0.0)], "t2": []},
+        ]
+        df = _raw_df([shots])
+        _add_ghost_columns(df, [
+            {"t1": [], "t2": []},
+            {"t1": [], "t2": []},
+        ])
+        # Manually inject a ghost count but leave coordinates NaN
+        df.at[1, "team1_ghosts_in_play"] = 1
+        result = apply_tracking(df, method=method)
+        # NaN coords → no match written
+        assert pd.isna(result.loc[1, "team1_ghost1_stone_id"])
+
+    @pytest.mark.parametrize("method", TRACKING_METHODS)
+    def test_multiple_ghosts_matched_independently(self, method):
+        """Two ghosts in the same shot match to two different previous stones."""
+        shots = [
+            {"t1": [(0.1, 0.0), (0.3, 0.0)], "t2": []},
+            # Both t1 stones displaced; two new stones delivered, two ghosts
+            {"t1": [(0.5, 0.0), (0.7, 0.0), (0.8, 0.0), (0.9, 0.0)], "t2": []},
+        ]
+        df = _raw_df([shots])
+        _add_ghost_columns(df, [
+            {"t1": [], "t2": []},
+            {"t1": [(0.1, 0.0), (0.3, 0.0)], "t2": []},
+        ])
+        result = apply_tracking(df, method=method)
+
+        id_at_01 = result.loc[0, "team1_stone1_id"]
+        id_at_03 = result.loc[0, "team1_stone2_id"]
+
+        ghost1_id = result.loc[1, "team1_ghost1_stone_id"]
+        ghost2_id = result.loc[1, "team1_ghost2_stone_id"]
+
+        assert ghost1_id == pytest.approx(id_at_01)
+        assert ghost2_id == pytest.approx(id_at_03)
+        assert ghost1_id != ghost2_id
+
+    @pytest.mark.parametrize("method", TRACKING_METHODS)
+    def test_ghost_id_nan_when_no_ghosts_in_play(self, method):
+        """With ghost cols present but ghosts_in_play=0, ghost_stone_id stays NaN."""
+        shots = [
+            {"t1": [(0.1, 0.0)], "t2": []},
+            {"t1": [(0.1, 0.0), (0.5, 0.0)], "t2": []},
+        ]
+        df = _raw_df([shots])
+        _add_ghost_columns(df, [
+            {"t1": [], "t2": []},
+            {"t1": [], "t2": []},  # no ghosts this shot
+        ])
+        result = apply_tracking(df, method=method)
+        assert pd.isna(result.loc[1, "team1_ghost1_stone_id"])
+
+    @pytest.mark.parametrize("method", TRACKING_METHODS)
+    def test_ghost_does_not_modify_stone_tracking_columns(self, method):
+        """Adding ghost columns must not alter any stone _id / _prev_x / _is_shot_stone."""
+        shots = [
+            {"t1": [(0.1, 0.0)], "t2": []},
+            {"t1": [(0.1, 0.0), (0.5, 0.0)], "t2": []},
+        ]
+        df_no_ghost = _raw_df([shots])
+        df_with_ghost = _raw_df([shots])
+        _add_ghost_columns(df_with_ghost, [
+            {"t1": [], "t2": []},
+            {"t1": [(0.1, 0.0)], "t2": []},
+        ])
+        result_no = apply_tracking(df_no_ghost, method=method)
+        result_with = apply_tracking(df_with_ghost, method=method)
+
+        for col in ("team1_stone1_id", "team1_stone1_prev_x", "team1_stone2_is_shot_stone"):
+            pd.testing.assert_series_equal(result_no[col], result_with[col], check_names=True)
+
+    @pytest.mark.parametrize("method", TRACKING_METHODS)
+    def test_end_boundary_resets_ghost_matching(self, method):
+        """Ghost at start of a new end → NaN (prev_state empty at end boundary)."""
+        end1 = [
+            {"t1": [(0.1, 0.0)], "t2": []},
+            {"t1": [(0.1, 0.0), (0.5, 0.0)], "t2": []},
+        ]
+        end2 = [{"t1": [(0.3, 0.0)], "t2": []}]
+        df = _raw_df([end1, end2])
+        _add_ghost_columns(df, [
+            {"t1": [], "t2": []},
+            {"t1": [], "t2": []},
+            {"t1": [(0.1, 0.0)], "t2": []},  # ghost at start of end 2
+        ])
+        result = apply_tracking(df, method=method)
+        # Row 2 is shot 1 of end 2 → prev_state empty → NaN
+        assert pd.isna(result.loc[2, "team1_ghost1_stone_id"])
