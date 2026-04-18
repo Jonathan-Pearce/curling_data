@@ -18,6 +18,7 @@ from tracking.track_stones import (
     cap_pressure_rate,
     displacement_symmetry,
     stone_count_consistency_rate,
+    delivery_anomaly_rate,
     TRACKING_METHODS,
     GHOST_MATCH_MAX_DIST,
 )
@@ -1137,6 +1138,86 @@ class TestGhostToStoneMatching:
         assert ghost1_id == pytest.approx(id_at_01)
         assert ghost2_id == pytest.approx(id_at_03)
         assert ghost1_id != ghost2_id
+
+
+# ---------------------------------------------------------------------------
+# delivery_anomaly_rate
+# ---------------------------------------------------------------------------
+
+class TestDeliveryAnomalyRate:
+
+    def test_returns_required_keys(self):
+        shots = [
+            {"t1": [(0.1, 0.0)], "t2": []},
+            {"t1": [(0.1, 0.0)], "t2": [(0.5, 0.0)]},
+        ]
+        df = apply_tracking(_raw_df([shots]))
+        result = delivery_anomaly_rate(df)
+        for key in (
+            "total_non_first_shots",
+            "delivery_anomaly_count",
+            "delivery_anomaly_rate",
+            "anomaly_examples",
+        ):
+            assert key in result, f"Missing key: {key}"
+
+    def test_zero_anomaly_one_new_id_per_shot(self):
+        """Each shot delivers exactly one stone → anomaly rate = 0.0."""
+        shots = [
+            {"t1": [(0.1, 0.0)], "t2": []},
+            {"t1": [(0.1, 0.0)], "t2": [(0.5, 0.0)]},  # t2 delivers
+            {"t1": [(0.1, 0.0), (0.3, 0.0)], "t2": [(0.5, 0.0)]},  # t1 delivers
+        ]
+        df = apply_tracking(_raw_df([shots]))
+        result = delivery_anomaly_rate(df)
+        assert result["delivery_anomaly_rate"] == pytest.approx(0.0)
+        assert result["delivery_anomaly_count"] == 0
+        assert result["total_non_first_shots"] == 2
+
+    def test_anomaly_when_no_new_stone(self):
+        """Shot 2 has the same stones as shot 1 (no delivery) → new_ids = 0 → anomaly."""
+        shots = [
+            {"t1": [(0.1, 0.0)], "t2": []},
+            {"t1": [(0.1, 0.0)], "t2": []},  # no new stone delivered
+        ]
+        df = apply_tracking(_raw_df([shots]))
+        result = delivery_anomaly_rate(df)
+        assert result["delivery_anomaly_count"] >= 1
+        assert result["delivery_anomaly_rate"] > 0.0
+
+    def test_anomaly_when_two_new_stones(self):
+        """Shot 2 jumps both stones beyond cap → two new IDs, expected 1 → anomaly."""
+        far = STONE_TRACK_MAX_DIST + 0.1
+        shots = [
+            {"t1": [(0.0, 0.0), (0.5, 0.0)], "t2": []},
+            {"t1": [(far, 0.0), (0.5 + far, 0.0)], "t2": []},  # both rematch fail
+        ]
+        df = apply_tracking(_raw_df([shots]))
+        result = delivery_anomaly_rate(df)
+        assert result["delivery_anomaly_count"] >= 1
+
+    def test_first_shot_excluded_from_count(self):
+        """First shot of each end does not contribute to total_non_first_shots."""
+        shots_end1 = [{"t1": [(0.1, 0.0)], "t2": []}]  # just one shot per end
+        shots_end2 = [{"t1": [(0.2, 0.0)], "t2": []}]
+        df = apply_tracking(_raw_df([shots_end1, shots_end2]))
+        result = delivery_anomaly_rate(df)
+        assert result["total_non_first_shots"] == 0
+
+    def test_anomaly_examples_populated(self):
+        """anomaly_examples lists details about the first anomalous shots."""
+        far = STONE_TRACK_MAX_DIST + 0.1
+        shots = [
+            {"t1": [(0.0, 0.0), (0.5, 0.0)], "t2": []},
+            {"t1": [(far, 0.0), (0.5 + far, 0.0)], "t2": []},
+        ]
+        df = apply_tracking(_raw_df([shots]))
+        result = delivery_anomaly_rate(df)
+        assert len(result["anomaly_examples"]) >= 1
+        ex = result["anomaly_examples"][0]
+        assert "shot_number" in ex
+        assert "new_ids_created" in ex
+        assert ex["new_ids_created"] != 1
 
     @pytest.mark.parametrize("method", TRACKING_METHODS)
     def test_ghost_id_nan_when_no_ghosts_in_play(self, method):

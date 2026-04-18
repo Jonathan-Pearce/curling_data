@@ -43,6 +43,7 @@ Evaluation helpers (importable)::
         cap_pressure_rate,
         displacement_symmetry,
         stone_count_consistency_rate,
+        delivery_anomaly_rate,
     )
 """
 
@@ -1019,6 +1020,87 @@ def stone_count_consistency_rate(tracked_df):
         "inconsistent_pairs": inconsistent_pairs,
         "stone_count_consistency_rate": round(rate, 4),
         "inconsistent_ends": inconsistent_ends,
+    }
+
+
+def delivery_anomaly_rate(tracked_df):
+    """Fraction of non-first shots where new stone ID count is not exactly 1.
+
+    In standard 4-person curling each non-first shot delivers exactly one
+    stone, so exactly one stone slot should receive a new ID (``prev_x`` is
+    NaN) per shot across both teams combined.  A count ≠ 1 indicates either:
+
+    - A tracking miss (stone failed to match, received spurious new ID).
+    - A stone disappearing off-screen without a corresponding delivery
+      (stone left play but no new stone was placed — legitimate in short
+      ends / conceded ends).
+    - Multi-stone confusion from heavy take-outs (rare edge cases where the
+      same shot clears and replaces multiple stones simultaneously).
+
+    This is a necessary-but-not-sufficient signal: a near-zero rate confirms
+    the tracker creates IDs at the right *frequency* but cannot confirm the
+    assignments to individual stones are correct.
+
+    Parameters
+    ----------
+    tracked_df : pd.DataFrame
+        Output of :func:`apply_tracking`.  Requires ``_x`` and ``_prev_x``
+        columns for all stone slots and an ``is_shot_stone`` column.
+
+    Returns
+    -------
+    dict
+        ``total_non_first_shots``
+            Number of non-first shots examined.
+        ``delivery_anomaly_count``
+            Shots where new-ID count ≠ 1.
+        ``delivery_anomaly_rate``
+            ``delivery_anomaly_count / total_non_first_shots``.  Near-zero
+            is ideal; values above ~0.10 suggest cap miscalibration.
+        ``anomaly_examples``
+            Up to 5 representative anomalous shots for inspection (dicts
+            with ``event_id``, ``match_id``, ``end_number``,
+            ``shot_number``, ``new_ids_created``).
+    """
+    df = tracked_df
+    group_keys = ["event_id", "match_id", "end_number"]
+    total_shots = 0
+    anomalous = 0
+    examples = []
+
+    for (event_id, match_id, end_number), end_df in df.groupby(group_keys, sort=True):
+        end_df = end_df.sort_values("shot_number").reset_index(drop=True)
+        first_shot = end_df["shot_number"].min()
+        mid_df = end_df[end_df["shot_number"] > first_shot]
+
+        for _, row in mid_df.iterrows():
+            total_shots += 1
+            new_ids = 0
+            for ti in (1, 2):
+                for si in range(1, MAX_STONES_PER_TEAM + 1):
+                    x_col = f"team{ti}_stone{si}_x"
+                    prev_col = f"team{ti}_stone{si}_prev_x"
+                    if x_col not in df.columns or prev_col not in df.columns:
+                        break
+                    if pd.notna(row.get(x_col)) and pd.isna(row.get(prev_col)):
+                        new_ids += 1
+            if new_ids != 1:
+                anomalous += 1
+                if len(examples) < 5:
+                    examples.append({
+                        "event_id": int(event_id),
+                        "match_id": int(match_id),
+                        "end_number": int(end_number),
+                        "shot_number": int(row["shot_number"]),
+                        "new_ids_created": new_ids,
+                    })
+
+    rate = anomalous / total_shots if total_shots > 0 else float("nan")
+    return {
+        "total_non_first_shots": total_shots,
+        "delivery_anomaly_count": anomalous,
+        "delivery_anomaly_rate": round(rate, 4),
+        "anomaly_examples": examples,
     }
 
 
