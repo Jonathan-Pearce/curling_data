@@ -63,9 +63,11 @@ jobs:
     # manifest, or the workflow file itself.  Avoids running on pure
     # documentation or test-only changes.
     if: |
-      contains(github.event.head_commit.modified, 'src/scraping/') ||
-      contains(github.event.head_commit.modified, 'src/tracking/') ||
-      github.event_name == 'pull_request'
+      github.event_name == 'pull_request' ||
+      (github.event_name == 'push' && (
+        contains(toJSON(github.event.head_commit.modified), 'src/scraping/') ||
+        contains(toJSON(github.event.head_commit.modified), 'src/tracking/')
+      ))
 
     steps:
       - name: Checkout repository
