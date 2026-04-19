@@ -492,41 +492,36 @@ class TestWithPDF:
         output_dir = str(tmp_path / "output")
         extract_all(PDF_PATH, output_dir)
 
-        for fname in ["events.csv", "matches.csv", "teams.csv", "players.csv", "ends.csv", "shot_locations_raw.csv"]:
+        for fname in ["events.parquet", "matches.parquet", "teams.parquet", "players.parquet", "ends.parquet", "shot_locations_raw.parquet"]:
             fpath = os.path.join(output_dir, fname)
             assert os.path.isfile(fpath), f"{fname} not created"
 
-        with open(os.path.join(output_dir, "events.csv")) as f:
-            events = list(csv.DictReader(f))
+        import pandas as pd
+        events = pd.read_parquet(os.path.join(output_dir, "events.parquet"))
         assert len(events) == 1
-        assert events[0]["event_id"] == "1"
-        assert events[0]["pdf_file"] == "ECC2025_ResultsBook_Men_A-Division.pdf"
+        assert events.iloc[0]["event_id"] == 1
+        assert events.iloc[0]["pdf_file"] == "ECC2025_ResultsBook_Men_A-Division.pdf"
 
-        with open(os.path.join(output_dir, "matches.csv")) as f:
-            matches = list(csv.DictReader(f))
+        matches = pd.read_parquet(os.path.join(output_dir, "matches.parquet"))
         assert len(matches) == 49
-        assert matches[0]["event_id"] == "1"
-        assert matches[0]["team1_code"] == "SUI"
-        assert matches[0]["team2_code"] == "SWE"
+        assert matches.iloc[0]["event_id"] == 1
+        assert matches.iloc[0]["team1_code"] == "SUI"
+        assert matches.iloc[0]["team2_code"] == "SWE"
 
-        with open(os.path.join(output_dir, "ends.csv")) as f:
-            ends = list(csv.DictReader(f))
+        ends = pd.read_parquet(os.path.join(output_dir, "ends.parquet"))
         assert len(ends) == 446
-        assert ends[0]["event_id"] == "1"
+        assert ends.iloc[0]["event_id"] == 1
 
-        with open(os.path.join(output_dir, "shot_locations_raw.csv")) as f:
-            shots = list(csv.DictReader(f))
+        shots = pd.read_parquet(os.path.join(output_dir, "shot_locations_raw.parquet"))
         assert len(shots) == 6992
-        assert shots[0]["event_id"] == "1"
+        assert shots.iloc[0]["event_id"] == 1
 
-        with open(os.path.join(output_dir, "teams.csv")) as f:
-            teams = list(csv.DictReader(f))
+        teams = pd.read_parquet(os.path.join(output_dir, "teams.parquet"))
         assert len(teams) == 10
-        assert teams[0]["event_id"] == "1"
+        assert teams.iloc[0]["event_id"] == 1
 
-        with open(os.path.join(output_dir, "players.csv")) as f:
-            players = list(csv.DictReader(f))
-        assert players[0]["event_id"] == "1"
+        players = pd.read_parquet(os.path.join(output_dir, "players.parquet"))
+        assert players.iloc[0]["event_id"] == 1
 
 
 @pytest.mark.skipif(not (PDF_AVAILABLE and WMCC_PDF_AVAILABLE), reason="Both PDF files not found in 'example raw data/'")
@@ -535,23 +530,21 @@ class TestMultiEvent:
         output_dir = str(tmp_path / "output")
         extract_all([PDF_PATH, WMCC_PDF_PATH], output_dir)
 
-        with open(os.path.join(output_dir, "events.csv")) as f:
-            events = list(csv.DictReader(f))
+        import pandas as pd
+        events = pd.read_parquet(os.path.join(output_dir, "events.parquet"))
         assert len(events) == 2
-        assert events[0]["event_id"] == "1"
-        assert events[1]["event_id"] == "2"
+        assert events.iloc[0]["event_id"] == 1
+        assert events.iloc[1]["event_id"] == 2
 
-        with open(os.path.join(output_dir, "matches.csv")) as f:
-            matches = list(csv.DictReader(f))
-        event1_matches = [m for m in matches if m["event_id"] == "1"]
-        event2_matches = [m for m in matches if m["event_id"] == "2"]
+        matches = pd.read_parquet(os.path.join(output_dir, "matches.parquet"))
+        event1_matches = matches[matches["event_id"] == 1]
+        event2_matches = matches[matches["event_id"] == 2]
         assert len(event1_matches) == 49
         assert len(event2_matches) > 0
 
-        with open(os.path.join(output_dir, "teams.csv")) as f:
-            teams = list(csv.DictReader(f))
-        event1_teams = [t for t in teams if t["event_id"] == "1"]
-        event2_teams = [t for t in teams if t["event_id"] == "2"]
+        teams = pd.read_parquet(os.path.join(output_dir, "teams.parquet"))
+        event1_teams = teams[teams["event_id"] == 1]
+        event2_teams = teams[teams["event_id"] == 2]
         assert len(event1_teams) == 10
         assert len(event2_teams) > 0
 
