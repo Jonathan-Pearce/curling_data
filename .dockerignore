@@ -1,0 +1,32 @@
+# Version-control noise
+.git
+.gitignore
+.github
+
+# Dev-container config (not needed in the image)
+.devcontainer
+
+# Virtual environment
+.venv
+__pycache__
+**/__pycache__
+*.py[cod]
+
+# Large data directories — mount these at runtime instead
+output/
+output_test/
+example raw data/
+eval_out/
+overlays/
+investigations/
+
+# Docs
+docs/
+README.md
+
+# CI scripts (not needed inside the container)
+ci_scripts/
+
+# Editor / OS artefacts
+.vscode
+*.DS_Store
