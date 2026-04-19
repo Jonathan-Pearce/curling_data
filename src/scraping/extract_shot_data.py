@@ -26,10 +26,15 @@ Outputs CSV files:
 import argparse
 import collections
 import csv
+import gc
 import io
+import json
 import math
+import multiprocessing
 import os
 import re
+import shutil
+import tempfile
 import urllib.error
 import urllib.request
 
@@ -37,6 +42,8 @@ import cv2
 import numpy as np
 import pandas as pd
 import pdfplumber
+import pyarrow as pa
+import pyarrow.parquet as pq
 
 # ---------------------------------------------------------------------------
 # Default PDF URLs (curlit.com result books)
@@ -138,15 +145,49 @@ def _is_url(source):
 
 
 def _open_pdf(source):
-    """Open a PDF from a local path or URL, returning a pdfplumber PDF object."""
+    """Open a PDF from a local path or URL, returning a pdfplumber PDF object.
+
+    For URL sources, the content is streamed to a temporary file on disk so
+    that the PDF bytes do not occupy Python's heap.  The caller must close
+    the returned object via :func:`_close_pdf` to ensure the temp file is
+    removed.
+    """
     if _is_url(source):
+        tmp = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)
+        tmp_path = tmp.name
         try:
-            response = urllib.request.urlopen(source, timeout=30)
-            data = response.read()
+            with urllib.request.urlopen(source, timeout=60) as response:
+                shutil.copyfileobj(response, tmp)
         except (urllib.error.URLError, urllib.error.HTTPError, OSError) as exc:
+            tmp.close()
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
             raise RuntimeError(f"Failed to download PDF from {source}: {exc}") from exc
-        return pdfplumber.open(io.BytesIO(data))
+        tmp.close()
+        try:
+            pdf = pdfplumber.open(tmp_path)
+        except Exception:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+            raise
+        pdf._tmp_path = tmp_path  # stash for cleanup in _close_pdf
+        return pdf
     return pdfplumber.open(source)
+
+
+def _close_pdf(pdf):
+    """Close *pdf* and remove the associated temp file, if any."""
+    tmp_path = getattr(pdf, "_tmp_path", None)
+    pdf.close()
+    if tmp_path is not None:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
 
 
 def load_result_urls(csv_path, min_year=DEFAULT_MIN_YEAR):
@@ -585,6 +626,7 @@ def _detect_house_center(crop_bgr):
     ys, xs = np.where(ring_mask > 0)
     pixel_dists = np.hypot(xs.astype(float) - cx, ys.astype(float) - cy)
     median_radius = float(np.median(pixel_dists))
+    del ys, xs, pixel_dists  # Free coordinate arrays now that median is computed.
 
     # Sanity-check: reject implausible estimates (outside ±25 % of the
     # calibrated constant) and fall back to the constant for that crop.
@@ -799,6 +841,7 @@ def _detect_stones_in_crop(crop_bgr, color_ranges=None):
     kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
     mask_red = cv2.morphologyEx(mask_red, cv2.MORPH_CLOSE, kernel)
     mask_yellow = cv2.morphologyEx(mask_yellow, cv2.MORPH_CLOSE, kernel)
+    del hsv, play_mask  # No longer needed; free before per-contour work.
 
     def _extract(mask):
         """Return (filled_stones, ghost_stones) for one colour mask.
@@ -876,7 +919,9 @@ def _detect_stones_in_crop(crop_bgr, color_ranges=None):
         return filled, ghosts
 
     red_filled, red_ghosts = _extract(mask_red)
+    del mask_red
     yellow_filled, yellow_ghosts = _extract(mask_yellow)
+    del mask_yellow
     return red_filled, red_ghosts, yellow_filled, yellow_ghosts, orientation
 
 
@@ -1012,13 +1057,23 @@ def group_pages_into_matches(pdf, shot_page_indices):
 # ---------------------------------------------------------------------------
 
 
-def extract_event(pdf_path, event_id):
+def extract_event(pdf_path, event_id, _on_match_data=None):
     """Extract data from a single PDF and return raw data structures.
 
     *pdf_path* can be a local file path **or** an HTTP(S) URL.
 
     Returns (matches_rows, teams_dict, players_dict, ends_rows, shots_rows)
     with *event_id* embedded in every row.
+
+    Parameters
+    ----------
+    _on_match_data : callable or None
+        If supplied, called as
+        ``_on_match_data(match_row, ends, shots, players_dict)`` after each
+        match is fully processed.  When set, shots and ends are **not**
+        accumulated in the returned lists, reducing peak memory for large
+        events.  ``players_dict`` is the cumulative player registry for the
+        event (all players seen in matches processed so far).
     """
     pdf = _open_pdf(pdf_path)
     shot_page_indices = find_shot_pages(pdf)
@@ -1083,7 +1138,7 @@ def extract_event(pdf_path, event_id):
             if not final_score_2:
                 final_score_2 = last_end["team2_score_after"]
 
-        matches_rows.append({
+        match_row = {
             "event_id": event_id,
             "match_id": match_id,
             "date": date_str,
@@ -1093,7 +1148,11 @@ def extract_event(pdf_path, event_id):
             "team2_code": team2_code,
             "team1_final_score": final_score_1,
             "team2_final_score": final_score_2,
-        })
+        }
+        # Per-match accumulators — freed after each match when _on_match_data
+        # is set, so only one match's worth of data is live at a time.
+        match_ends = []
+        match_shots = []
 
         # Process each end (page)
         for page_idx in match_pages:
@@ -1116,7 +1175,7 @@ def extract_event(pdf_path, event_id):
                 # shot-level processing (we can't reliably assign 16 stone
                 # positions without exactly 16 diagrams).  hammer_team_code is
                 # left blank because shot 16 wasn't thrown.
-                ends_rows.append({
+                match_ends.append({
                     "event_id": event_id,
                     "match_id": match_id,
                     "end_number": end_number,
@@ -1141,7 +1200,7 @@ def extract_event(pdf_path, event_id):
             # Determine hammer from shot 16 (last stone)
             hammer_team = shot_metas[15]["team_code"] if shot_metas[15]["team_code"] else ""
 
-            ends_rows.append({
+            match_ends.append({
                 "event_id": event_id,
                 "match_id": match_id,
                 "end_number": end_number,
@@ -1236,7 +1295,9 @@ def extract_event(pdf_path, event_id):
                             row[f"{prefix}_ghost{gi+1}_dist"] = ""
                             row[f"{prefix}_ghost{gi+1}_angle"] = ""
 
-                shots_rows.append(row)
+                match_shots.append(row)
+
+            del page_bgr  # Free the full-page rendered image (~78 MB) before continuing.
 
             # Page-level orientation consistency check (improvement #9).
             # All 16 crops on the same end page should agree on orientation;
@@ -1255,7 +1316,17 @@ def extract_event(pdf_path, event_id):
                     "for affected shots."
                 )
 
-    pdf.close()
+        # Either stream data to caller (memory-efficient) or accumulate for
+        # the return value (backward-compatible with tests and direct callers).
+        if _on_match_data is not None:
+            _on_match_data(match_row, match_ends, match_shots, players_dict)
+            del match_shots, match_ends  # Release shot/end memory immediately.
+        else:
+            matches_rows.append(match_row)
+            ends_rows.extend(match_ends)
+            shots_rows.extend(match_shots)
+
+    _close_pdf(pdf)
 
     return matches_rows, teams_dict, players_dict, ends_rows, shots_rows
 
@@ -1315,7 +1386,7 @@ def run_calibration_diagnostic(pdf_paths, verbose=True):
         if not shot_pages:
             if verbose:
                 print("  No shot pages found.")
-            pdf.close()
+            _close_pdf(pdf)
             results.append({"event": event_name, "pdf": pdf_path,
                              "status": "no_shot_pages"})
             continue
@@ -1325,7 +1396,7 @@ def run_calibration_diagnostic(pdf_paths, verbose=True):
         if not shot_images:
             if verbose:
                 print("  No shot images found on first shot page.")
-            pdf.close()
+            _close_pdf(pdf)
             results.append({"event": event_name, "pdf": pdf_path,
                              "status": "no_shot_images"})
             continue
@@ -1340,6 +1411,7 @@ def run_calibration_diagnostic(pdf_paths, verbose=True):
 
         # Check shot 1 for stones unexpectedly far outside the house.
         color_ranges = _calibrate_stone_colors(page_bgr, first_page)
+        del page_bgr  # No longer needed after calibration; free the ~78 MB image.
         red_stones, _red_ghosts, yellow_stones, _yellow_ghosts, _ = _detect_stones_in_crop(first_crop, color_ranges)
         all_stones = red_stones + yellow_stones
         suspect_stones = [s for s in all_stones if s[2] > SUSPECT_DIST_THRESHOLD]
@@ -1391,7 +1463,7 @@ def run_calibration_diagnostic(pdf_paths, verbose=True):
             "shot1_yellow": len(yellow_stones),
             "shot1_suspect": len(suspect_stones),
         })
-        pdf.close()
+        _close_pdf(pdf)
 
     if verbose:
         ok_count = sum(1 for r in results if r.get("status") == "ok")
@@ -1407,7 +1479,233 @@ def run_calibration_diagnostic(pdf_paths, verbose=True):
     return results
 
 
-def extract_all(pdf_paths, output_dir="output", event_metadata=None):
+# ---------------------------------------------------------------------------
+# Subprocess worker + CSV fragment helpers
+# ---------------------------------------------------------------------------
+
+def _append_csv_fragment(src_path, dst_file):
+    """Append the rows of *src_path* to the open file *dst_file*, skipping
+    its header line so the main file header is not duplicated."""
+    with open(src_path, newline="", encoding="utf-8") as src:
+        next(src, None)  # skip header
+        shutil.copyfileobj(src, dst_file)
+
+
+def _event_subprocess_target(
+    event_id, pdf_path, meta, tmp_dir, player_id_offset,
+    shots_all_fields, shots_numeric_cols, child_conn,
+):
+    """Process one event in an isolated subprocess.
+
+    Writes per-event CSV/parquet fragments to *tmp_dir* and sends a compact
+    result dict back to the parent via *child_conn*, then exits.  When the
+    subprocess exits the OS reclaims all memory it consumed — Python heap,
+    glibc pages held by numpy/OpenCV, pdfplumber/PIL caches — none of which
+    would be returned to the OS if the work were done in the parent process.
+
+    Parameters
+    ----------
+    player_id_offset : int
+        Number of players already assigned globally by previous events.
+        New players in this event receive IDs starting from
+        ``player_id_offset + 1``.
+    child_conn : multiprocessing.Connection
+        Write-end of a ``Pipe``; the function sends one dict then closes it.
+    """
+    event_name = meta.get(
+        "tournament_name",
+        os.path.splitext(os.path.basename(pdf_path))[0],
+    )
+
+    matches_fields = [
+        "event_id", "match_id", "date", "round", "start_time",
+        "team1_code", "team2_code",
+        "team1_final_score", "team2_final_score",
+    ]
+    ends_fields = [
+        "event_id", "match_id", "end_number",
+        "team1_code", "team2_code",
+        "team1_score_before", "team2_score_before",
+        "team1_score_this_end", "team2_score_this_end",
+        "team1_score_after", "team2_score_after",
+        "hammer_team_code",
+        "team1_time_left", "team2_time_left",
+    ]
+
+    tmp_matches = os.path.join(tmp_dir, f"event_{event_id}_matches.parquet")
+    tmp_ends = os.path.join(tmp_dir, f"event_{event_id}_ends.parquet")
+    tmp_shots_parquet = os.path.join(tmp_dir, f"event_{event_id}_shots.parquet")
+
+    shots_pq_writer = None
+    matches_rows = []
+    ends_rows = []
+    n_matches = n_ends = n_shots = 0
+    players_dict_global = {}          # (event_id, tc, pn) -> global_id
+    player_counter = [player_id_offset]  # mutable int shared with closure
+    has_time = False
+    error = None
+    teams_dict_result = {}
+
+    try:
+        def _on_match(match_row, ends, shots, event_players):
+            nonlocal shots_pq_writer, n_matches, n_ends, n_shots, has_time
+
+            # Assign global IDs to players first seen in this match.
+            for key in event_players:
+                if key not in players_dict_global:
+                    player_counter[0] += 1
+                    players_dict_global[key] = player_counter[0]
+
+            # Remap player IDs in shots to global IDs.
+            for row in shots:
+                tc = row["team_code"]
+                pn = row["player_name"]
+                if tc and pn:
+                    gid = players_dict_global.get((event_id, tc, pn))
+                    if gid is not None:
+                        row["player_id"] = gid
+
+            if any(r.get("team1_time_left") or r.get("team2_time_left")
+                   for r in ends):
+                has_time = True
+
+            matches_rows.append(match_row)
+            ends_rows.extend(ends)
+            n_matches += 1
+            n_ends += len(ends)
+            n_shots += len(shots)
+
+            # Stream this match's shots to the temp parquet as a small batch.
+            if shots:
+                df_b = pd.DataFrame(shots, columns=shots_all_fields)
+                df_b[shots_numeric_cols] = df_b[shots_numeric_cols].replace("", None)
+                for col in shots_numeric_cols:
+                    df_b[col] = pd.to_numeric(df_b[col], errors="coerce")
+                for col in ("team1_ghosts_in_play", "team2_ghosts_in_play"):
+                    df_b[col] = (
+                        pd.to_numeric(df_b[col], errors="coerce").astype("Int64")
+                    )
+                tbl = pa.Table.from_pandas(df_b, preserve_index=False)
+                del df_b
+                if shots_pq_writer is None:
+                    shots_pq_writer = pq.ParquetWriter(tmp_shots_parquet, tbl.schema)
+                shots_pq_writer.write_table(tbl)
+                del tbl
+
+        _, teams_dict_result, _, _, _ = extract_event(
+            pdf_path, event_id, _on_match_data=_on_match
+        )
+
+        # Write accumulated matches and ends to parquet (small per event).
+        if matches_rows:
+            df_m = pd.DataFrame(matches_rows, columns=matches_fields)
+            for col in ("team1_final_score", "team2_final_score"):
+                df_m[col] = pd.to_numeric(df_m[col], errors="coerce").astype("Int64")
+            df_m.to_parquet(tmp_matches, index=False)
+        if ends_rows:
+            df_e = pd.DataFrame(ends_rows, columns=ends_fields)
+            _ends_int_cols = [
+                "team1_score_before", "team2_score_before",
+                "team1_score_this_end", "team2_score_this_end",
+                "team1_score_after", "team2_score_after",
+            ]
+            for col in _ends_int_cols:
+                df_e[col] = pd.to_numeric(df_e[col], errors="coerce").astype("Int64")
+            df_e.to_parquet(tmp_ends, index=False)
+
+    except Exception as exc:  # noqa: BLE001
+        error = str(exc)
+
+    finally:
+        if shots_pq_writer is not None:
+            shots_pq_writer.close()
+
+    event_row = {
+        "event_id": event_id,
+        "event_name": event_name,
+        "pdf_file": os.path.basename(pdf_path),
+    }
+    for col in ("year", "location", "gender"):
+        if meta.get(col):
+            event_row[col] = meta[col]
+
+    gc.collect()  # encourage Python to release any lingering references
+
+    child_conn.send({
+        "error": error,
+        "event_row": event_row,
+        "teams_dict": teams_dict_result,
+        "players_dict": players_dict_global,
+        "has_time": has_time,
+        "n_matches": n_matches,
+        "n_ends": n_ends,
+        "n_shots": n_shots,
+        "tmp_matches": tmp_matches,
+        "tmp_ends": tmp_ends,
+        "tmp_shots_parquet": tmp_shots_parquet,
+    })
+    child_conn.close()
+
+
+def _read_events_parquet(path):
+    """Read an existing events.parquet back into (events_rows, events_with_time_set)."""
+    events_rows = []
+    events_with_time = set()
+    df = pd.read_parquet(path)
+    for _, row in df.iterrows():
+        r = row.where(pd.notna(row), other=None).to_dict()
+        if r.get("event_id") is not None:
+            try:
+                r["event_id"] = int(r["event_id"])
+            except (ValueError, TypeError):
+                pass
+        if r.get("year") is not None:
+            try:
+                r["year"] = int(r["year"])
+            except (ValueError, TypeError):
+                pass
+        if r.get("has_time_data"):
+            events_with_time.add(r["event_id"])
+        events_rows.append(r)
+    return events_rows, events_with_time
+
+
+def _read_players_parquet(path):
+    """Read an existing players.parquet back into {(event_id, team_code, player_name): player_id}."""
+    players_dict = {}
+    df = pd.read_parquet(path)
+    for _, row in df.iterrows():
+        try:
+            eid = int(row["event_id"])
+            pid = int(row["player_id"])
+        except (KeyError, ValueError, TypeError):
+            continue
+        key = (eid, str(row.get("team_code") or ""), str(row.get("player_name") or ""))
+        players_dict[key] = pid
+    return players_dict
+
+
+def _read_teams_parquet(path):
+    """Read an existing teams.parquet back into {(event_id, team_code): {name, players}}."""
+    teams_dict = {}
+    df = pd.read_parquet(path)
+    player_cols = [c for c in df.columns if c.startswith("player") and c.endswith("_name")]
+    for _, row in df.iterrows():
+        try:
+            eid = int(row["event_id"])
+        except (KeyError, ValueError, TypeError):
+            continue
+        code = str(row.get("team_code") or "")
+        players = {str(row[c]) for c in player_cols if pd.notna(row.get(c)) and row.get(c)}
+        teams_dict[(eid, code)] = {
+            "name": str(row.get("team_name") or ""),
+            "players": players,
+        }
+    return teams_dict
+
+
+def extract_all(pdf_paths, output_dir="output", event_metadata=None,
+                start_index=0, batch_size=None, checkpoint_file=None):
     """Run the full extraction pipeline for one or more PDFs and write CSV tables.
 
     Parameters
@@ -1420,6 +1718,16 @@ def extract_all(pdf_paths, output_dir="output", event_metadata=None):
         Optional per-event metadata dicts (one per pdf_path) with keys such as
         ``tournament_name``, ``year``, ``location``, ``gender``.  When
         provided, the extra columns are included in ``events.csv``.
+    start_index : int
+        0-based index of the first event to process.  Use with ``batch_size``
+        to process the full list in multiple runs.
+    batch_size : int or None
+        Maximum number of events to process in this run.  ``None`` means
+        process all events from ``start_index`` to the end of the list.
+    checkpoint_file : str or None
+        Path to the JSON checkpoint file.  Updated after every event so a
+        killed run can be resumed.  Defaults to
+        ``{output_dir}/.checkpoint.json``.
     """
     if isinstance(pdf_paths, str):
         pdf_paths = [pdf_paths]
@@ -1427,125 +1735,275 @@ def extract_all(pdf_paths, output_dir="output", event_metadata=None):
     if event_metadata is None:
         event_metadata = [{}] * len(pdf_paths)
 
+    # ---- Determine the slice to process this run ---------------------------
+    total_events = len(pdf_paths)
+    end_index = total_events if batch_size is None else min(start_index + batch_size, total_events)
+    batch_paths = pdf_paths[start_index:end_index]
+    batch_meta = event_metadata[start_index:end_index]
+
+    if not batch_paths:
+        print(f"No events to process (start_index={start_index} >= {total_events}).")
+        return
+
+    append_mode = start_index > 0  # True when we are resuming / continuing a previous batch
+
     os.makedirs(output_dir, exist_ok=True)
 
-    # Accumulators across all events
+    if checkpoint_file is None:
+        checkpoint_file = os.path.join(output_dir, ".checkpoint.json")
+
+    _, stone_fields, ghost_fields, shots_all_fields = _shot_fields()
+    shots_numeric_cols = stone_fields + [
+        c for c in ghost_fields if "ghosts_in_play" not in c
+    ]
+
+    matches_path = os.path.join(output_dir, "matches.parquet")
+    ends_path = os.path.join(output_dir, "ends.parquet")
+    shots_path = os.path.join(output_dir, "shot_locations_raw.parquet")
+
+    matches_fields = [
+        "event_id", "match_id", "date", "round", "start_time",
+        "team1_code", "team2_code",
+        "team1_final_score", "team2_final_score",
+    ]
+    ends_fields = [
+        "event_id", "match_id", "end_number",
+        "team1_code", "team2_code",
+        "team1_score_before", "team2_score_before",
+        "team1_score_this_end", "team2_score_this_end",
+        "team1_score_after", "team2_score_after",
+        "hammer_team_code",
+        "team1_time_left", "team2_time_left",
+    ]
+
+    # ---- Restore small-table state from previous batches (if resuming) -----
     events_rows = []
-    all_matches = []
-    all_teams_dict = {}   # (event_id, code) -> {name, players set}
-    all_players_dict = {} # (event_id, code, name) -> id
-    all_ends = []
-    all_shots = []
-
+    all_teams_dict = {}    # (event_id, code) -> {name, players set}
+    all_players_dict = {}  # (event_id, code, name) -> global_id
     global_player_id = 0
+    events_with_time = set()
+    total_matches_count = total_ends_count = total_shots_count = 0
 
-    for event_id, (pdf_path, meta) in enumerate(
-        zip(pdf_paths, event_metadata), start=1
-    ):
-        event_name = meta.get(
-            "tournament_name",
-            os.path.splitext(os.path.basename(pdf_path))[0],
-        )
-        print(f"\n{'='*60}")
-        print(f"Event {event_id}/{len(pdf_paths)}: {event_name}")
-        print(f"  PDF: {pdf_path}")
-        print(f"{'='*60}")
+    if append_mode:
+        # Restore counters from checkpoint so the summary at the end is accurate.
+        if os.path.exists(checkpoint_file):
+            with open(checkpoint_file, encoding="utf-8") as _f:
+                _ckpt = json.load(_f)
+            global_player_id = _ckpt.get("global_player_id", 0)
+            total_matches_count = _ckpt.get("total_matches", 0)
+            total_ends_count = _ckpt.get("total_ends", 0)
+            total_shots_count = _ckpt.get("total_shots", 0)
 
-        event_row = {
-            "event_id": event_id,
-            "event_name": event_name,
-            "pdf_file": os.path.basename(pdf_path),
-        }
-        # Include extra metadata columns when available
-        for col in ("year", "location", "gender"):
-            if meta.get(col):
-                event_row[col] = meta[col]
+        # Restore small tables from the parquet files written by the previous batch.
+        _ev_path = os.path.join(output_dir, "events.parquet")
+        _pl_path = os.path.join(output_dir, "players.parquet")
+        _tm_path = os.path.join(output_dir, "teams.parquet")
+        if os.path.exists(_ev_path):
+            events_rows, events_with_time = _read_events_parquet(_ev_path)
+        if os.path.exists(_pl_path):
+            all_players_dict = _read_players_parquet(_pl_path)
+        if os.path.exists(_tm_path):
+            all_teams_dict = _read_teams_parquet(_tm_path)
 
-        events_rows.append(event_row)
+        print(f"Resuming from event index {start_index} "
+              f"(events {start_index+1}–{end_index} of {total_events}). "
+              f"Appending to existing output files.")
+    else:
+        print(f"Processing events 1–{end_index} of {total_events}.")
 
-        try:
-            matches, teams_dict, players_dict, ends, shots = extract_event(
-                pdf_path, event_id
+    # Temp directory for per-event CSV/parquet fragments.
+    tmp_dir = tempfile.mkdtemp(prefix="curling_extract_")
+
+    # Each event is processed in a fresh subprocess (spawn context = clean
+    # interpreter).  When the subprocess exits the OS reclaims ALL memory it
+    # consumed: Python heap high-watermark, glibc pages held by numpy/OpenCV,
+    # pdfplumber/PIL internal caches.  The parent process therefore stays at a
+    # low, stable memory footprint regardless of how many events are processed.
+    mp_ctx = multiprocessing.get_context("spawn")
+
+    # Parquet writers for the three large streaming tables (opened lazily on
+    # first batch so the schema is inferred from real data).
+    pq_writers = {"matches": None, "ends": None, "shots": None}
+    pq_paths = {"matches": matches_path, "ends": ends_path, "shots": shots_path}
+
+    # In append mode, parquet files cannot be extended in-place.  Rename each
+    # existing file to a .prev sidecar; the parent will re-stream its contents
+    # at the top of the new file before appending the current batch's data.
+    prev_parquets = {}
+    if append_mode:
+        for key, path in pq_paths.items():
+            if os.path.exists(path):
+                prev = path + ".prev"
+                os.rename(path, prev)
+                prev_parquets[key] = prev
+
+    try:
+        # Re-stream all previous-batch data so each output file is always
+        # a complete, self-contained dataset after every run.
+        for key, prev_path in prev_parquets.items():
+            if os.path.exists(prev_path):
+                _pf = pq.ParquetFile(prev_path)
+                for _b in _pf.iter_batches(batch_size=1000):
+                    if pq_writers[key] is None:
+                        pq_writers[key] = pq.ParquetWriter(pq_paths[key], _pf.schema_arrow)
+                    pq_writers[key].write_batch(_b)
+                del _pf
+
+        for event_id, (pdf_path, meta) in enumerate(
+            zip(batch_paths, batch_meta), start=start_index + 1
+        ):
+            event_name = meta.get(
+                "tournament_name",
+                os.path.splitext(os.path.basename(pdf_path))[0],
             )
-        except (RuntimeError, OSError, ValueError, KeyError) as exc:
-            print(f"  ERROR processing {pdf_path}: {exc}")
-            continue
+            print(f"\n{'='*60}")
+            print(f"Event {event_id}/{total_events}: {event_name}")
+            print(f"  PDF: {pdf_path}")
+            print(f"{'='*60}")
 
-        all_matches.extend(matches)
-        all_ends.extend(ends)
-        all_shots.extend(shots)
+            # Spawn a subprocess that processes this event and writes its data
+            # to per-event temp files, then sends back compact metadata.
+            parent_conn, child_conn = mp_ctx.Pipe(duplex=False)
+            p = mp_ctx.Process(
+                target=_event_subprocess_target,
+                args=(
+                    event_id, pdf_path, meta, tmp_dir, global_player_id,
+                    shots_all_fields, shots_numeric_cols, child_conn,
+                ),
+                daemon=False,
+            )
+            p.start()
+            child_conn.close()  # parent never writes to the child end
 
-        # Merge teams scoped by event_id
-        for code, info in teams_dict.items():
-            key = (event_id, code)
-            if key not in all_teams_dict:
-                all_teams_dict[key] = {"name": info["name"], "players": set(info["players"])}
+            try:
+                result = parent_conn.recv()
+            except EOFError:
+                result = {
+                    "error": "subprocess exited without result (possibly OOM-killed)"
+                }
+            finally:
+                parent_conn.close()
+
+            p.join()
+
+            if result.get("error"):
+                print(f"  ERROR: {result['error']}")
+                events_rows.append({
+                    "event_id": event_id,
+                    "event_name": event_name,
+                    "pdf_file": os.path.basename(pdf_path),
+                })
             else:
-                all_teams_dict[key]["players"].update(info["players"])
-                if info["name"] and not all_teams_dict[key]["name"]:
-                    all_teams_dict[key]["name"] = info["name"]
+                # Update global registries from subprocess result (all small).
+                all_players_dict.update(result["players_dict"])
+                if result["players_dict"]:
+                    global_player_id = max(result["players_dict"].values())
 
-        # Re-number player IDs globally
-        for (eid, tc, pn), local_id in players_dict.items():
-            if (eid, tc, pn) not in all_players_dict:
-                global_player_id += 1
-                all_players_dict[(eid, tc, pn)] = global_player_id
+                if result["has_time"]:
+                    events_with_time.add(event_id)
 
-    # Remap player IDs to global IDs in shots
-    local_to_global = {}
-    for (eid, tc, pn), gid in all_players_dict.items():
-        local_to_global[(eid, tc, pn)] = gid
+                events_rows.append(result["event_row"])
 
-    for row in all_shots:
-        eid = row["event_id"]
-        tc = row["team_code"]
-        pn = row["player_name"]
-        if tc and pn:
-            row["player_id"] = local_to_global.get((eid, tc, pn), row["player_id"])
+                for code, info in result["teams_dict"].items():
+                    key = (event_id, code)
+                    if key not in all_teams_dict:
+                        all_teams_dict[key] = {
+                            "name": info["name"],
+                            "players": set(info["players"]),
+                        }
+                    else:
+                        all_teams_dict[key]["players"].update(info["players"])
+                        if info["name"] and not all_teams_dict[key]["name"]:
+                            all_teams_dict[key]["name"] = info["name"]
 
-    # ---- Write CSVs --------------------------------------------------------
-    # Derive has_time_data flag per event from ends data
-    events_with_time = set(
-        row["event_id"]
-        for row in all_ends
-        if row.get("team1_time_left") or row.get("team2_time_left")
-    )
+                total_matches_count += result["n_matches"]
+                total_ends_count += result["n_ends"]
+                total_shots_count += result["n_shots"]
+
+                # Stream each subprocess temp parquet fragment into the
+                # corresponding main parquet writer.
+                for key, tmp_path in [
+                    ("matches", result["tmp_matches"]),
+                    ("ends", result["tmp_ends"]),
+                    ("shots", result["tmp_shots_parquet"]),
+                ]:
+                    if os.path.exists(tmp_path):
+                        _pf = pq.ParquetFile(tmp_path)
+                        for _b in _pf.iter_batches(batch_size=1000):
+                            if pq_writers[key] is None:
+                                pq_writers[key] = pq.ParquetWriter(
+                                    pq_paths[key], _pf.schema_arrow
+                                )
+                            pq_writers[key].write_batch(_b)
+                        del _pf
+                        try:
+                            os.unlink(tmp_path)
+                        except OSError:
+                            pass
+
+            # ---- Checkpoint: record progress after every event -------------
+            _ckpt_data = {
+                "next_index": event_id,
+                "global_player_id": global_player_id,
+                "total_matches": total_matches_count,
+                "total_ends": total_ends_count,
+                "total_shots": total_shots_count,
+            }
+            with open(checkpoint_file, "w", encoding="utf-8") as _f:
+                json.dump(_ckpt_data, _f)
+
+    finally:
+        for writer in pq_writers.values():
+            if writer is not None:
+                writer.close()
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+        for prev_path in prev_parquets.values():
+            if os.path.exists(prev_path):
+                os.unlink(prev_path)
+
+    # ---- Write small tables at the end -------------------------------------
     for event_row in events_rows:
-        event_row["has_time_data"] = event_row["event_id"] in events_with_time
+        event_row["has_time_data"] = event_row.get("event_id") in events_with_time
 
-    _write_events_csv(os.path.join(output_dir, "events.csv"), events_rows)
-    _write_matches_csv(os.path.join(output_dir, "matches.csv"), all_matches)
-    _write_teams_csv(os.path.join(output_dir, "teams.csv"), all_teams_dict)
-    _write_players_csv(os.path.join(output_dir, "players.csv"), all_players_dict)
-    _write_ends_csv(os.path.join(output_dir, "ends.csv"), all_ends)
-    _write_shots_csv(os.path.join(output_dir, "shot_locations_raw.csv"), all_shots)
+    _write_events_parquet(os.path.join(output_dir, "events.parquet"), events_rows)
+    _write_teams_parquet(os.path.join(output_dir, "teams.parquet"), all_teams_dict)
+    _write_players_parquet(os.path.join(output_dir, "players.parquet"), all_players_dict)
 
-    total_matches = len(all_matches)
-    total_ends = len(all_ends)
-    total_shots = len(all_shots)
-    print(f"\nDone – {len(events_rows)} events, {total_matches} matches, "
-          f"{total_ends} ends, {total_shots} shots written to {output_dir}/")
+    batch_event_count = end_index - start_index
+    print(f"\nBatch complete – processed events {start_index+1}–{end_index} of {total_events}. "
+          f"Running totals: {len(events_rows)} events, {total_matches_count} matches, "
+          f"{total_ends_count} ends, {total_shots_count} shots in {output_dir}/")
+    if end_index < total_events:
+        print(f"  {total_events - end_index} events remaining. "
+              f"Run again with --resume to continue, or "
+              f"--start-event {end_index} to specify manually.")
 
 
 # ---------------------------------------------------------------------------
-# CSV writers
+# Parquet writers for small lookup tables
 # ---------------------------------------------------------------------------
 
-def _write_events_csv(path, rows):
+def _write_events_parquet(path, rows):
     fields = ["event_id", "event_name", "year", "location", "gender", "pdf_file", "has_time_data"]
-    _write_csv(path, fields, rows)
+    df = pd.DataFrame(rows, columns=fields)
+    df["year"] = pd.to_numeric(df["year"], errors="coerce").astype("Int64")
+    df["event_id"] = pd.to_numeric(df["event_id"], errors="coerce").astype("Int64")
+    df.to_parquet(path, index=False)
 
 
-def _write_matches_csv(path, rows):
+def _write_matches_parquet(path, rows):
     fields = [
         "event_id", "match_id", "date", "round", "start_time",
         "team1_code", "team2_code",
         "team1_final_score", "team2_final_score",
     ]
-    _write_csv(path, fields, rows)
+    df = pd.DataFrame(rows, columns=fields)
+    for col in ("event_id", "match_id", "team1_final_score", "team2_final_score"):
+        df[col] = pd.to_numeric(df[col], errors="coerce").astype("Int64")
+    df.to_parquet(path, index=False)
 
 
-def _write_teams_csv(path, teams_dict):
+def _write_teams_parquet(path, teams_dict):
     rows = []
     for (event_id, code), info in sorted(teams_dict.items()):
         player_list = sorted(info["players"])
@@ -1553,21 +2011,28 @@ def _write_teams_csv(path, teams_dict):
         for i, p in enumerate(player_list, start=1):
             row[f"player{i}_name"] = p
         rows.append(row)
-    # Determine max players across all teams
+    if not rows:
+        pd.DataFrame(columns=["event_id", "team_code", "team_name"]).to_parquet(path, index=False)
+        return
     max_p = max((len(r) - 3 for r in rows), default=0)
     fields = ["event_id", "team_code", "team_name"] + [f"player{i}_name" for i in range(1, max_p + 1)]
-    _write_csv(path, fields, rows)
+    df = pd.DataFrame(rows, columns=fields)
+    df["event_id"] = pd.to_numeric(df["event_id"], errors="coerce").astype("Int64")
+    df.to_parquet(path, index=False)
 
 
-def _write_players_csv(path, players_dict):
+def _write_players_parquet(path, players_dict):
     rows = [
         {"player_id": pid, "event_id": eid, "team_code": tc, "player_name": pn}
         for (eid, tc, pn), pid in sorted(players_dict.items(), key=lambda x: x[1])
     ]
-    _write_csv(path, ["player_id", "event_id", "team_code", "player_name"], rows)
+    df = pd.DataFrame(rows, columns=["player_id", "event_id", "team_code", "player_name"])
+    for col in ("player_id", "event_id"):
+        df[col] = pd.to_numeric(df[col], errors="coerce").astype("Int64")
+    df.to_parquet(path, index=False)
 
 
-def _write_ends_csv(path, rows):
+def _write_ends_parquet(path, rows):
     fields = [
         "event_id", "match_id", "end_number",
         "team1_code", "team2_code",
@@ -1577,50 +2042,47 @@ def _write_ends_csv(path, rows):
         "hammer_team_code",
         "team1_time_left", "team2_time_left",
     ]
-    _write_csv(path, fields, rows)
+    pd.DataFrame(rows, columns=fields).to_parquet(path, index=False)
 
 
-def _write_shots_csv(path, rows):
-    base_fields = [
+def _shot_fields():
+    """Return (base_fields, stone_fields, ghost_fields, all_fields) for shot CSV/parquet."""
+    base = [
         "event_id", "match_id", "end_number", "shot_number",
         "team_code", "player_id", "player_name",
         "shot_type", "turn", "accuracy",
         "house_orientation",
         "team1_stones_in_play", "team2_stones_in_play",
     ]
-    stone_fields = []
+    stone = []
     for ti in (1, 2):
         for si in range(1, MAX_STONES_PER_TEAM + 1):
             prefix = f"team{ti}_stone{si}"
-            stone_fields += [
-                f"{prefix}_x", f"{prefix}_y",
-                f"{prefix}_dist", f"{prefix}_angle",
-            ]
+            stone += [f"{prefix}_x", f"{prefix}_y", f"{prefix}_dist", f"{prefix}_angle"]
     # Ghost stone fields – outline-ring positions for displaced stones
     # (improvement #12).  team{N}_ghosts_in_play is always an integer count;
     # coordinate columns are NULL when no ghost was detected for that slot.
-    ghost_fields = []
+    ghost = []
     for ti in (1, 2):
-        ghost_fields.append(f"team{ti}_ghosts_in_play")
+        ghost.append(f"team{ti}_ghosts_in_play")
         for gi in range(1, MAX_STONES_PER_TEAM + 1):
             prefix = f"team{ti}_ghost{gi}"
-            ghost_fields += [
-                f"{prefix}_x", f"{prefix}_y",
-                f"{prefix}_dist", f"{prefix}_angle",
-            ]
-    all_fields = base_fields + stone_fields + ghost_fields
-    _write_csv(path, all_fields, rows)
-    parquet_path = os.path.splitext(path)[0] + ".parquet"
-    df = pd.DataFrame(rows, columns=all_fields)
-    # Convert empty strings to NULL and cast all position columns to float.
+            ghost += [f"{prefix}_x", f"{prefix}_y", f"{prefix}_dist", f"{prefix}_angle"]
+    return base, stone, ghost, base + stone + ghost
+
+
+def _write_shots_parquet(path, rows):
+    """Write a list of shot dicts to a parquet file with correct numeric dtypes."""
+    _, stone_fields, ghost_fields, all_fields = _shot_fields()
     numeric_cols = stone_fields + [c for c in ghost_fields if c not in
                                    ("team1_ghosts_in_play", "team2_ghosts_in_play")]
+    df = pd.DataFrame(rows, columns=all_fields)
     df[numeric_cols] = df[numeric_cols].replace("", None)
     for col in numeric_cols:
         df[col] = pd.to_numeric(df[col], errors="coerce")
     for col in ("team1_ghosts_in_play", "team2_ghosts_in_play"):
         df[col] = pd.to_numeric(df[col], errors="coerce").astype("Int64")
-    df.to_parquet(parquet_path, index=False)
+    df.to_parquet(path, index=False)
 
 
 def _write_csv(path, fieldnames, rows):
@@ -1648,6 +2110,18 @@ def main():
     parser.add_argument("--min-year", type=int, default=DEFAULT_MIN_YEAR,
                         help="Minimum event year to include when reading from "
                              "--results-csv (default: 2013).")
+    parser.add_argument("--batch-size", type=int, default=None, metavar="N",
+                        help="Process at most N events per run.  Run again with "
+                             "--resume (or --start-event) to continue.")
+    parser.add_argument("--resume", action="store_true",
+                        help="Read the checkpoint file to find where the previous "
+                             "run stopped and continue from there.")
+    parser.add_argument("--start-event", type=int, default=None, metavar="INDEX",
+                        help="0-based index of the first event to process.  "
+                             "Overrides the checkpoint when combined with --resume.")
+    parser.add_argument("--checkpoint", default=None, metavar="FILE",
+                        help="Path to the JSON checkpoint file "
+                             "(default: <output-dir>/.checkpoint.json).")
     parser.add_argument("--calibrate", action="store_true",
                         help="Run the per-event calibration diagnostic instead "
                              "of the full extraction (improvement #10). Prints "
@@ -1685,8 +2159,33 @@ def main():
         run_calibration_diagnostic(pdf_sources)
         return
 
+    # ---- Determine start_index for this run --------------------------------
+    checkpoint_file = args.checkpoint or os.path.join(args.output_dir, ".checkpoint.json")
+    start_index = 0
+
+    if args.resume and os.path.exists(checkpoint_file):
+        with open(checkpoint_file, encoding="utf-8") as f:
+            ckpt = json.load(f)
+        start_index = ckpt.get("next_index", 0)
+        print(f"Checkpoint found: resuming from event index {start_index} "
+              f"({len(pdf_sources) - start_index} events remaining).")
+
+    if args.start_event is not None:
+        start_index = args.start_event  # explicit override
+
+    if start_index >= len(pdf_sources):
+        print(f"All {len(pdf_sources)} events already processed according to checkpoint.")
+        return
+
     print(f"Extracting shot data from {len(pdf_sources)} PDF(s) …")
-    extract_all(pdf_sources, args.output_dir, event_metadata=metadata)
+    extract_all(
+        pdf_sources,
+        args.output_dir,
+        event_metadata=metadata,
+        start_index=start_index,
+        batch_size=args.batch_size,
+        checkpoint_file=checkpoint_file,
+    )
 
 
 if __name__ == "__main__":

@@ -6,6 +6,8 @@ on:
     paths:
       - "src/**"
       - "tests/**"
+      - "ci_scripts/**"
+      - "output/shot_locations.parquet"
       - "pyproject.toml"
       - "requirements.txt"
       - ".github/workflows/ci.yml"
@@ -14,6 +16,8 @@ on:
     paths:
       - "src/**"
       - "tests/**"
+      - "ci_scripts/**"
+      - "output/shot_locations.parquet"
       - "pyproject.toml"
       - "requirements.txt"
       - ".github/workflows/ci.yml"
@@ -50,7 +54,8 @@ jobs:
 
   # ──────────────────────────────────────────────────────────────────────────
   # Job 2: Detection accuracy evaluation (report-only, never fails the build)
-  # Runs only when scraping or tracking code changes.
+  # Runs only when scraping or tracking code, CI scripts, or the manifest
+  # changes.
   # ──────────────────────────────────────────────────────────────────────────
   evaluate-scraping:
     name: Evaluate Scraping Accuracy
@@ -59,14 +64,12 @@ jobs:
     # fails the build — even if evaluation produces poor results.
     continue-on-error: true
 
-    # Only run on push/PR changes to the scraping or tracking code, the
-    # manifest, or the workflow file itself.  Avoids running on pure
-    # documentation or test-only changes.
     if: |
       github.event_name == 'pull_request' ||
       (github.event_name == 'push' && (
         contains(toJSON(github.event.head_commit.modified), 'src/scraping/') ||
-        contains(toJSON(github.event.head_commit.modified), 'src/tracking/')
+        contains(toJSON(github.event.head_commit.modified), 'src/tracking/') ||
+        contains(toJSON(github.event.head_commit.modified), 'ci_scripts/')
       ))
 
     steps:
@@ -97,6 +100,14 @@ jobs:
             --pdf-dir "example raw data" \
             --out ci_scripts/evaluation_results/metrics.json
 
+      - name: Check regressions against baseline
+        if: always()
+        run: |
+          python ci_scripts/check_regression.py \
+            --current  ci_scripts/evaluation_results/metrics.json \
+            --baseline ci_scripts/evaluation_results/baseline_scraping.json \
+            --markdown ci_scripts/evaluation_results/regression_report.md
+
       - name: Upload evaluation metrics artifact
         if: always()
         uses: actions/upload-artifact@v4
@@ -105,6 +116,21 @@ jobs:
           path: ci_scripts/evaluation_results/
           retention-days: 90
 
+      - name: Write step summary
+        if: always()
+        run: |
+          if [ -f ci_scripts/evaluation_results/metrics.json ]; then
+            python ci_scripts/print_metrics.py \
+              ci_scripts/evaluation_results/metrics.json --markdown \
+              >> $GITHUB_STEP_SUMMARY
+          else
+            echo "No metrics file produced." >> $GITHUB_STEP_SUMMARY
+          fi
+          if [ -f ci_scripts/evaluation_results/regression_report.md ]; then
+            cat ci_scripts/evaluation_results/regression_report.md \
+              >> $GITHUB_STEP_SUMMARY
+          fi
+
       - name: Print metrics summary to job log
         if: always()
         run: |
@@ -112,4 +138,72 @@ jobs:
             python ci_scripts/print_metrics.py ci_scripts/evaluation_results/metrics.json
           else
             echo "No metrics file produced."
+          fi
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # Job 3: Stone tracking quality evaluation (report-only, never fails build)
+  # Runs when tracking code or the output parquet changes.
+  # ──────────────────────────────────────────────────────────────────────────
+  evaluate-tracking:
+    name: Evaluate Tracking Quality
+    runs-on: ubuntu-latest
+    continue-on-error: true
+
+    if: |
+      github.event_name == 'pull_request' ||
+      (github.event_name == 'push' && (
+        contains(toJSON(github.event.head_commit.modified), 'src/tracking/') ||
+        contains(toJSON(github.event.head_commit.modified), 'output/shot_locations') ||
+        contains(toJSON(github.event.head_commit.modified), 'ci_scripts/')
+      ))
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Check for tracked parquet
+        run: |
+          if [ -f output/shot_locations.parquet ]; then
+            echo "Found output/shot_locations.parquet"
+            python -c "
+          import pandas as pd
+          df = pd.read_parquet('output/shot_locations.parquet')
+          print(f'  {len(df):,} rows')
+          "
+          else
+            echo "output/shot_locations.parquet not present — evaluation will skip."
+          fi
+
+      - name: Run tracking evaluation
+        run: |
+          python ci_scripts/evaluate_tracking.py \
+            --out ci_scripts/evaluation_results/tracking_metrics.json \
+            --markdown ci_scripts/evaluation_results/tracking_summary.md
+
+      - name: Upload tracking metrics artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tracking-metrics-${{ github.run_id }}
+          path: ci_scripts/evaluation_results/
+          retention-days: 90
+
+      - name: Write step summary
+        if: always()
+        run: |
+          if [ -f ci_scripts/evaluation_results/tracking_summary.md ]; then
+            cat ci_scripts/evaluation_results/tracking_summary.md \
+              >> $GITHUB_STEP_SUMMARY
+          else
+            echo "No tracking metrics produced (parquet absent)." \
+              >> $GITHUB_STEP_SUMMARY
           fi

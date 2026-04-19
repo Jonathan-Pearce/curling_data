@@ -70,6 +70,8 @@ ghosts detected carry 0 in the count column and NULL in the coordinate columns.
 | `team1_ghost{N}_angle` | float/NULL | Angle in degrees (atan2) from house centre |
 | `team2_ghosts_in_play` | int | Same for team2 |
 | `team2_ghost{N}_*` | float/NULL | Same columns for team2 (N = 1…8) |
+| `team1_ghost{N}_stone_id` | float/NULL | ID of the stone that occupied this ghost position at the preceding shot. Populated by `track_stones.py`. NULL when no match found within `GHOST_MATCH_MAX_DIST` (0.20 units) or on the first shot of an end. |
+| `team2_ghost{N}_stone_id` | float/NULL | Same for team2 |
 
 Ghosts within each team are sorted ascending by distance. The displacement vector of a
 displaced stone can be estimated as:
