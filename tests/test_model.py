@@ -131,7 +131,7 @@ class TestMLP:
         out = mlp(x)
         assert (out < 0).any(), "Expected some negative values without final activation"
 
-    def test_dropout_reduces_variance_in_training(self):
+    def test_dropout_produces_stochastic_outputs(self):
         """With high dropout, repeated passes on a 3-layer MLP should differ."""
         mlp = MLP([8, 16, 16], dropout=0.9)
         mlp.train()

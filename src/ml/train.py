@@ -382,7 +382,7 @@ def train(
     epochs : int
     batch_size : int
     lr : float
-        Initial learning rate (Adam optimiser).
+        Initial learning rate (Adam optimizer).
     weight_decay : float
     node_hidden : int
         Hidden dimension in GNN layers.
